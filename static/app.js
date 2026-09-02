@@ -187,17 +187,27 @@ function setFloor(floor){
 document.querySelectorAll('.floor-tab').forEach(b=>b.addEventListener('click',()=>setFloor(b.dataset.floor)));
 
 let mapZoom=1; const ZOOM_MIN=.6,ZOOM_MAX=2.5,ZOOM_STEP=.1;
+function centerMapViewport(){
+  const map=document.getElementById('layoutMap');
+  if(!map)return;
+  requestAnimationFrame(()=>{
+    map.scrollLeft=Math.max(0,(map.scrollWidth-map.clientWidth)/2);
+    map.scrollTop=Math.max(0,(map.scrollHeight-map.clientHeight)/2);
+  });
+}
 function applyMapZoom(){
   const map=document.getElementById('layoutMap'),stage=document.getElementById('mapStage'),value=document.getElementById('zoomResetBtn');
   if(!map||!stage)return;
   stage.style.setProperty('--map-zoom',mapZoom.toFixed(2));map.style.setProperty('--map-zoom',mapZoom.toFixed(2));
   if(value)value.textContent=`${Math.round(mapZoom*100)}%`;
+  centerMapViewport();
 }
 function setMapZoom(v){mapZoom=Math.min(ZOOM_MAX,Math.max(ZOOM_MIN,Math.round(v*10)/10));applyMapZoom();}
 document.getElementById('zoomInBtn')?.addEventListener('click',()=>setMapZoom(mapZoom+ZOOM_STEP));
 document.getElementById('zoomOutBtn')?.addEventListener('click',()=>setMapZoom(mapZoom-ZOOM_STEP));
 document.getElementById('zoomResetBtn')?.addEventListener('click',()=>setMapZoom(1));
 document.getElementById('layoutMap')?.addEventListener('wheel',e=>{e.preventDefault();setMapZoom(mapZoom+(e.deltaY<0?ZOOM_STEP:-ZOOM_STEP));},{passive:false});
+window.addEventListener('resize',centerMapViewport);
 applyMapZoom();
 
 async function load(){
@@ -259,6 +269,19 @@ async function toggleLine(id,active){
     await load();
   }catch(e){alert(e.message);}
 }
+async function deleteLine(id){
+  const d=departments.find(x=>Number(x.id)===Number(id));
+  if(!d)return;
+  const ok=confirm(`Hapus line \"${d.department}\"?\n\nLine akan dinonaktifkan dari Dashboard, tetapi histori Andon tetap disimpan.`);
+  if(!ok)return;
+  try{
+    const r=await fetch(`/api/departments/${id}`,{method:'DELETE'});
+    const data=await r.json();
+    if(!r.ok)throw new Error(data.error||'Gagal menghapus line');
+    dirtyPositions.delete(Number(id));
+    await load();
+  }catch(e){alert(e.message);}
+}
 function renderSettingsLines(){
   const body=document.getElementById('settingsLineBody');if(!body)return;
   const rows=departments.filter(d=>Number(d.floor||1)===currentFloor);
@@ -269,10 +292,10 @@ function renderSettingsLines(){
       <td><span class="line-active ${active?'yes':'no'}">${active?'Aktif':'Nonaktif'}</span></td>
       <td>${p.left.toFixed(1)}% / ${p.top.toFixed(1)}%</td>
       <td class="table-actions"><button class="mini-btn" onclick="openEditModal(${d.id})">✏ Edit</button>
-      <button class="mini-btn ${active?'danger-btn':''}" onclick="toggleLine(${d.id},${active})">${active?'Nonaktifkan':'Aktifkan'}</button></td></tr>`;
+      ${active?`<button class="mini-btn danger-btn" onclick="deleteLine(${d.id})">🗑 Hapus</button>`:`<button class="mini-btn" onclick="toggleLine(${d.id},false)">Aktifkan</button>`}</td></tr>`;
   }).join('');
 }
-window.openEditModal=openEditModal;window.toggleLine=toggleLine;
+window.openEditModal=openEditModal;window.toggleLine=toggleLine;window.deleteLine=deleteLine;
 
 load();
 if(!IS_SETTINGS){loadHistory();setInterval(load,5000);setInterval(loadHistory,5000);}

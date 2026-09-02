@@ -1,9 +1,10 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, redirect, url_for, session
 import sqlite3
 from pathlib import Path
 import threading
 import time
 import os
+import hmac
 
 try:
     import serial
@@ -32,9 +33,27 @@ SERIAL_PORT = os.getenv("SERIAL_PORT", "COM5")
 SERIAL_BAUD = int(os.getenv("SERIAL_BAUD", "115200"))
 
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "andon-dashboard-change-this-secret")
+LOGIN_USERNAME = os.getenv("LOGIN_USERNAME", "admin")
+LOGIN_PASSWORD = os.getenv("LOGIN_PASSWORD", "andon123")
 serial_conn = None
 serial_lock = threading.Lock()
 serial_status = "Gateway belum terhubung"
+
+
+def is_logged_in():
+    return bool(session.get("logged_in"))
+
+
+@app.before_request
+def require_login():
+    if request.endpoint in {"login", "health", "static"}:
+        return None
+    if is_logged_in():
+        return None
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Login diperlukan"}), 401
+    return redirect(url_for("login"))
 
 
 def get_db():
@@ -296,6 +315,30 @@ def health():
         return jsonify({"status": "ok"})
     except Exception as exc:
         return jsonify({"status": "error", "error": str(exc)}), 500
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if is_logged_in():
+        return redirect(url_for("index"))
+    error = None
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        if hmac.compare_digest(username, LOGIN_USERNAME) and hmac.compare_digest(password, LOGIN_PASSWORD):
+            session.clear()
+            session["logged_in"] = True
+            session["username"] = username
+            session.permanent = True
+            return redirect(url_for("index"))
+        error = "Username atau password salah."
+    return render_template("login.html", error=error)
+
+
+@app.get("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 @app.route("/")

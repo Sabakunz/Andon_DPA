@@ -105,3 +105,9 @@ Fitur Setting:
 Perubahan posisi dan data line disimpan di database SQLite. Kolom `is_active` dipakai untuk soft-delete agar histori lama tetap aman.
 
 Untuk deployment Railway, perubahan pada repository GitHub akan dideploy otomatis sesuai konfigurasi Railway.
+
+
+## V4 — Login System
+Dashboard dan Setting sekarang dilindungi sistem login berbasis session. Semua halaman dan API sistem memerlukan login, sedangkan `/health`, `/login`, dan file static tetap dapat diakses publik.
+
+Default login demo: username `admin`, password `andon123`. Untuk Railway, sebaiknya set `LOGIN_USERNAME`, `LOGIN_PASSWORD`, dan `SECRET_KEY` sebagai environment variables. Tidak ada role; semua pengguna yang berhasil login mendapat akses Dashboard dan Setting.

@@ -13,6 +13,7 @@
     <h1>ANDON BOARD — {% if mode == 'settings' %}SETTING{% else %}STATUS CLUSTER PRODUKSI{% endif %}</h1>
   </div>
   <div class="top-actions">
+    <div class="login-user">LOGIN: {{ session.get("username", "user") }} <a href="/logout">LOGOUT</a></div>
     {% if mode == 'settings' %}
       <a class="action-btn" href="/">← DASHBOARD</a>
     {% else %}
@@ -84,7 +85,7 @@
     <div class="panel-head">
       <div>
         <div class="panel-title">MANAJEMEN LINE / DEPARTMENT</div>
-        <div class="panel-subtitle">Tambah, edit, aktifkan kembali, atau nonaktifkan line. Nonaktifkan tidak menghapus histori Andon.</div>
+        <div class="panel-subtitle">Tambah, edit, hapus, atau aktifkan kembali line. Hapus hanya menonaktifkan line agar histori Andon tetap aman.</div>
       </div>
       <button id="addLineBtn" class="primary-btn" type="button">＋ TAMBAH LINE</button>
     </div>
