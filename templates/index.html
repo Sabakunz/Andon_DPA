@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Andon Board</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div>
+    <div class="company">PT. DHARMA PRECISION PARTS</div>
+    <h1>ANDON BOARD — STATUS CLUSTER PRODUKSI</h1>
+  </div>
+  <div class="clock-wrap">
+    <div id="clock" class="clock">--:--:--</div>
+    <div id="date" class="date">--</div>
+  </div>
+</header>
+
+<main>
+  <nav class="floor-tabs" aria-label="Pilih lantai">
+    <button class="floor-tab active" data-floor="1" type="button">LANTAI 1</button>
+    <button class="floor-tab" data-floor="2" type="button">LANTAI 2</button>
+  </nav>
+
+  <section class="kpis">
+    <div class="kpi"><span>Total Line</span><b id="total">0</b></div>
+    <div class="kpi normal"><span>Normal</span><b id="normal">0</b></div>
+    <div class="kpi machine"><span>Machine</span><b id="machine">0</b></div>
+    <div class="kpi material"><span>Material</span><b id="material">0</b></div>
+    <div class="kpi quality"><span>Quality</span><b id="quality">0</b></div>
+  </section>
+
+  <section class="layout-panel panel">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title"><span id="layoutTitle">LAYOUT LANTAI 1 — LIVE ANDON</span></div>
+        <div></div>
+      </div>
+      <div class="legend">
+        <span><i class="dot normal"></i> Normal</span>
+        <span><i class="dot machine"></i> Machine</span>
+        <span><i class="dot material"></i> Material</span>
+        <span><i class="dot quality"></i> Quality</span>
+      </div>
+    </div>
+    <div id="layoutMap" class="layout-map">
+      <img id="layoutImage" src="/static/denah.png" alt="Denah lantai 1">
+      <div id="markers"></div>
+    </div>
+  </section>
+
+  <section class="board-section">
+    <div id="board"></div>
+  </section>
+
+  <section class="history-panel panel">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">HISTORY ANDON</div>
+        <div class="panel-subtitle">Riwayat masalah yang diterima sistem. Data diperbarui otomatis setiap 5 detik.</div>
+      </div>
+    </div>
+    <div class="history-table-wrap">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Tanggal</th>
+            <th>Jam Mulai</th>
+            <th>Line</th>
+            <th>Problem</th>
+            <th>Jam Selesai</th>
+            <th>Durasi</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody">
+          <tr><td colspan="7" class="history-empty">Memuat histori Andon...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <span>Auto refresh: 5 detik</span>
+  <span id="dbStatus">Database: menghubungkan...</span>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
