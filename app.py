@@ -54,6 +54,8 @@ def init_history_table():
         conn.execute("ALTER TABLE departments ADD COLUMN position_left REAL")
     if "position_top" not in columns:
         conn.execute("ALTER TABLE departments ADD COLUMN position_top REAL")
+    if "is_active" not in columns:
+        conn.execute("ALTER TABLE departments ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
 
     # Posisi default marker untuk line lama yang belum punya koordinat.
     # Nilai disimpan sebagai persentase agar tetap mengikuti ukuran denah.
@@ -298,16 +300,23 @@ def health():
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", mode="dashboard")
+
+@app.route("/settings")
+def settings():
+    return render_template("index.html", mode="settings")
 
 
 @app.get("/api/departments")
 def departments():
+    include_inactive = request.args.get("include_inactive", "0") == "1"
     conn = get_db()
-    rows = conn.execute("""
+    where = "" if include_inactive else "WHERE is_active=1"
+    rows = conn.execute(f"""
         SELECT id, cluster, department, status, priority, due_date,
-               issue, target_output, operator, last_update, floor, position_left, position_top
+               issue, target_output, operator, last_update, floor, position_left, position_top, is_active
         FROM departments
+        {where}
         ORDER BY cluster, id
     """).fetchall()
     conn.close()
@@ -394,13 +403,13 @@ def create_department():
     try:
         cur = conn.execute("""
             INSERT INTO departments
-            (cluster, department, status, priority, due_date, issue, target_output, operator, floor, position_left, position_top)
-            VALUES (?, ?, 'Berjalan Normal', 'Normal', date('now','localtime'), NULL, 0, NULL, ?, ?, ?)
+            (cluster, department, status, priority, due_date, issue, target_output, operator, floor, position_left, position_top, is_active)
+            VALUES (?, ?, 'Berjalan Normal', 'Normal', date('now','localtime'), NULL, 0, NULL, ?, ?, ?, 1)
         """, (cluster, department, floor, position_left, position_top))
         conn.commit()
         row = conn.execute("""
             SELECT id, cluster, department, status, priority, due_date, issue,
-                   target_output, operator, last_update, floor, position_left, position_top
+                   target_output, operator, last_update, floor, position_left, position_top, is_active
             FROM departments WHERE id=?
         """, (cur.lastrowid,)).fetchone()
     except sqlite3.IntegrityError:
@@ -414,8 +423,39 @@ def create_department():
 @app.put("/api/departments/<int:department_id>")
 def update_department(department_id):
     payload = request.get_json(silent=True) or {}
-    allowed = {"status", "priority", "due_date", "issue", "target_output", "operator"}
+    allowed = {
+        "status", "priority", "due_date", "issue", "target_output", "operator",
+        "cluster", "department", "floor", "position_left", "position_top", "is_active"
+    }
     updates = {k: payload[k] for k in allowed if k in payload}
+
+    # Validasi field yang dipakai oleh editor Setting.
+    if "cluster" in updates:
+        updates["cluster"] = str(updates["cluster"]).strip()
+        if not updates["cluster"]:
+            return jsonify({"error": "Cluster wajib diisi"}), 400
+    if "department" in updates:
+        updates["department"] = str(updates["department"]).strip()
+        if not updates["department"]:
+            return jsonify({"error": "Nama line wajib diisi"}), 400
+    if "floor" in updates:
+        try:
+            updates["floor"] = int(updates["floor"])
+            if updates["floor"] not in (1, 2):
+                raise ValueError
+        except (TypeError, ValueError):
+            return jsonify({"error": "Lantai harus 1 atau 2"}), 400
+    for key in ("position_left", "position_top"):
+        if key in updates:
+            try:
+                updates[key] = float(updates[key])
+                if not 0 <= updates[key] <= 100:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return jsonify({"error": "Posisi X/Y harus 0-100%"}), 400
+    if "is_active" in updates:
+        updates["is_active"] = 1 if bool(updates["is_active"]) else 0
+
     if not updates:
         return jsonify({"error": "Tidak ada data yang diubah"}), 400
 
@@ -423,13 +463,33 @@ def update_department(department_id):
     values = list(updates.values()) + [department_id]
 
     conn = get_db()
+    try:
+        cur = conn.execute(
+            f"UPDATE departments SET {sets}, last_update=datetime('now','localtime') WHERE id=?",
+            values,
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        conn.close()
+        return jsonify({"error": "Nama line sudah digunakan. Gunakan nama yang berbeda."}), 409
+    conn.close()
+
+    if cur.rowcount == 0:
+        return jsonify({"error": "Departemen tidak ditemukan"}), 404
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/departments/<int:department_id>")
+def deactivate_department(department_id):
+    # Soft delete agar histori Andon lama tetap aman.
+    conn = get_db()
     cur = conn.execute(
-        f"UPDATE departments SET {sets}, last_update=datetime('now','localtime') WHERE id=?",
-        values,
+        "UPDATE departments SET is_active=0, last_update=datetime('now','localtime') WHERE id=?",
+        (department_id,),
     )
     conn.commit()
     conn.close()
-
     if cur.rowcount == 0:
         return jsonify({"error": "Departemen tidak ditemukan"}), 404
     return jsonify({"ok": True})

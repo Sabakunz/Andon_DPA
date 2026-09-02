@@ -139,3 +139,37 @@ footer{border-top:1px solid var(--line);padding:12px 32px;color:#718096;font-siz
   .line-form{grid-template-columns:1fr}
   .full{grid-column:1}
 }
+
+
+/* ============================================================
+   V3 — DASHBOARD / SETTING
+   ============================================================ */
+.mode-nav{display:flex;gap:8px;margin-bottom:16px}
+.mode-nav a{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;border:1px solid var(--line);background:#0f161f;color:#9faaba;padding:9px 15px;border-radius:8px;font-size:10px;font-weight:900;letter-spacing:.8px}
+.mode-nav a:hover{border-color:#566477;color:#fff}
+.mode-nav a.active{background:var(--green);border-color:var(--green);color:#04150b}
+.panel-tools{display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:flex-end}
+.draggable-marker{cursor:grab;touch-action:none}
+.draggable-marker:hover{z-index:40;outline:2px solid rgba(255,255,255,.8);outline-offset:2px}
+.draggable-marker.dragging{cursor:grabbing;z-index:60;transform:translate(-50%,-50%) scale(1.18);box-shadow:0 5px 20px rgba(0,0,0,.55)}
+.primary-btn:disabled{opacity:.45;cursor:not-allowed}
+.settings-panel{margin-top:18px}
+.table-wrap{overflow-x:auto}
+.settings-table{width:100%;border-collapse:collapse;min-width:760px;font-size:12px}
+.settings-table th{padding:10px 12px;text-align:left;color:#8d9aaa;font-size:10px;text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid var(--line);background:#0c121a}
+.settings-table td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.06);color:#dbe2ea}
+.settings-table tbody tr:hover{background:rgba(255,255,255,.025)}
+.inactive-row{opacity:.55}
+.line-active{display:inline-block;padding:4px 8px;border-radius:12px;font-size:10px;font-weight:900}
+.line-active.yes{background:rgba(25,196,91,.12);color:var(--green)}
+.line-active.no{background:rgba(240,68,73,.12);color:var(--red)}
+.table-actions{white-space:nowrap;display:flex;gap:6px}
+.mini-btn{border:1px solid #344052;background:#17202b;color:#dce4ed;border-radius:7px;padding:7px 9px;font-size:10px;font-weight:800;cursor:pointer}
+.mini-btn:hover{border-color:#64748a;background:#202c3a}
+.mini-btn.danger-btn{border-color:rgba(240,68,73,.45);color:#ff7b80}
+.settings-panel .panel-head{align-items:flex-start}
+@media(max-width:700px){
+  .mode-nav{margin-bottom:12px}
+  .panel-tools{justify-content:flex-start}
+  .table-actions{flex-direction:column}
+}

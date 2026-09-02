@@ -6,14 +6,18 @@
   <title>Andon Board</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body data-mode="{{ mode }}">
 <header class="topbar">
   <div>
     <div class="company">PT. DHARMA PRECISION PARTS</div>
-    <h1>ANDON BOARD — STATUS CLUSTER PRODUKSI</h1>
+    <h1>ANDON BOARD — {% if mode == 'settings' %}SETTING{% else %}STATUS CLUSTER PRODUKSI{% endif %}</h1>
   </div>
   <div class="top-actions">
-    <button id="addLineBtn" class="action-btn" type="button">＋ TAMBAH LINE</button>
+    {% if mode == 'settings' %}
+      <a class="action-btn" href="/">← DASHBOARD</a>
+    {% else %}
+      <a class="action-btn" href="/settings">⚙ SETTING</a>
+    {% endif %}
     <div class="clock-wrap">
       <div id="clock" class="clock">--:--:--</div>
       <div id="date" class="date">--</div>
@@ -22,11 +26,17 @@
 </header>
 
 <main>
+  <nav class="mode-nav">
+    <a class="{% if mode == 'dashboard' %}active{% endif %}" href="/">DASHBOARD</a>
+    <a class="{% if mode == 'settings' %}active{% endif %}" href="/settings">⚙ SETTING</a>
+  </nav>
+
   <nav class="floor-tabs" aria-label="Pilih lantai">
     <button class="floor-tab active" data-floor="1" type="button">LANTAI 1</button>
     <button class="floor-tab" data-floor="2" type="button">LANTAI 2</button>
   </nav>
 
+  {% if mode == 'dashboard' %}
   <section class="kpis">
     <div class="kpi"><span>Total Line</span><b id="total">0</b></div>
     <div class="kpi normal"><span>Normal</span><b id="normal">0</b></div>
@@ -34,18 +44,26 @@
     <div class="kpi material"><span>Material</span><b id="material">0</b></div>
     <div class="kpi quality"><span>Quality</span><b id="quality">0</b></div>
   </section>
+  {% endif %}
 
   <section class="layout-panel panel">
     <div class="panel-head">
       <div>
-        <div class="panel-title"><span id="layoutTitle">LAYOUT LANTAI 1 — LIVE ANDON</span></div>
-        <div></div>
+        <div class="panel-title"><span id="layoutTitle">LAYOUT LANTAI 1 — {% if mode == 'settings' %}SETTING{% else %}LIVE ANDON{% endif %}</span></div>
+        <div class="panel-subtitle" id="layoutHint">
+          {% if mode == 'settings' %}Geser indikator dengan mouse, lalu klik SIMPAN POSISI.{% else %}Pantau posisi dan status Andon secara real-time.{% endif %}
+        </div>
       </div>
-      <div class="legend">
-        <span><i class="dot normal"></i> Normal</span>
-        <span><i class="dot machine"></i> Machine</span>
-        <span><i class="dot material"></i> Material</span>
-        <span><i class="dot quality"></i> Quality</span>
+      <div class="panel-tools">
+        {% if mode == 'settings' %}
+          <button id="saveLayoutBtn" class="primary-btn" type="button">💾 SIMPAN POSISI</button>
+        {% endif %}
+        <div class="legend">
+          <span><i class="dot normal"></i> Normal</span>
+          <span><i class="dot machine"></i> Machine</span>
+          <span><i class="dot material"></i> Material</span>
+          <span><i class="dot quality"></i> Quality</span>
+        </div>
       </div>
     </div>
     <div id="layoutMap" class="layout-map">
@@ -61,10 +79,24 @@
     </div>
   </section>
 
-  <section class="board-section">
-    <div id="board"></div>
+  {% if mode == 'settings' %}
+  <section class="settings-panel panel">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">MANAJEMEN LINE / DEPARTMENT</div>
+        <div class="panel-subtitle">Tambah, edit, aktifkan kembali, atau nonaktifkan line. Nonaktifkan tidak menghapus histori Andon.</div>
+      </div>
+      <button id="addLineBtn" class="primary-btn" type="button">＋ TAMBAH LINE</button>
+    </div>
+    <div class="table-wrap">
+      <table class="settings-table">
+        <thead><tr><th>Lantai</th><th>Cluster</th><th>Nama Line</th><th>Status</th><th>Posisi</th><th>Aksi</th></tr></thead>
+        <tbody id="settingsLineBody"><tr><td colspan="6" class="history-empty">Memuat line...</td></tr></tbody>
+      </table>
+    </div>
   </section>
-
+  {% else %}
+  <section class="board-section"><div id="board"></div></section>
   <section class="history-panel panel">
     <div class="panel-head">
       <div>
@@ -74,74 +106,48 @@
     </div>
     <div class="history-table-wrap">
       <table class="history-table">
-        <thead>
-          <tr>
-            <th>Tanggal</th>
-            <th>Jam Mulai</th>
-            <th>Line</th>
-            <th>Problem</th>
-            <th>Jam Selesai</th>
-            <th>Durasi</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="historyBody">
-          <tr><td colspan="7" class="history-empty">Memuat histori Andon...</td></tr>
-        </tbody>
+        <thead><tr><th>Tanggal</th><th>Jam Mulai</th><th>Line</th><th>Problem</th><th>Jam Selesai</th><th>Durasi</th><th>Status</th></tr></thead>
+        <tbody id="historyBody"><tr><td colspan="7" class="history-empty">Memuat histori Andon...</td></tr></tbody>
       </table>
     </div>
   </section>
+  {% endif %}
 
+  {% if mode == 'settings' %}
   <div id="lineModal" class="modal hidden" aria-hidden="true">
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="lineModalTitle">
       <div class="modal-head">
         <div>
           <div id="lineModalTitle" class="modal-title">TAMBAH LINE</div>
-          <div class="modal-subtitle">Line baru akan langsung masuk ke dashboard sebagai Berjalan Normal.</div>
+          <div class="modal-subtitle">Isi data line. Posisi juga bisa diatur langsung dengan drag & drop di denah.</div>
         </div>
         <button id="closeLineModal" class="modal-close" type="button" aria-label="Tutup">×</button>
       </div>
       <form id="lineForm" class="line-form">
-        <label>
-          <span>Lantai</span>
-          <select id="lineFloor" required>
-            <option value="1">Lantai 1</option>
-            <option value="2">Lantai 2</option>
-          </select>
-        </label>
-        <label>
-          <span>Cluster</span>
-          <input id="lineCluster" type="text" maxlength="40" placeholder="Contoh: A" required>
-        </label>
-        <label class="full">
-          <span>Nama Line</span>
-          <input id="lineName" type="text" maxlength="100" placeholder="Contoh: Line Baru" required>
-        </label>
-        <div class="position-help full">Posisi marker di denah menggunakan persentase dari kiri dan atas. Bisa disesuaikan nanti.</div>
-        <label>
-          <span>Posisi X (%)</span>
-          <input id="lineLeft" type="number" min="0" max="100" step="0.5" value="50" required>
-        </label>
-        <label>
-          <span>Posisi Y (%)</span>
-          <input id="lineTop" type="number" min="0" max="100" step="0.5" value="50" required>
-        </label>
+        <input id="lineId" type="hidden">
+        <label><span>Lantai</span><select id="lineFloor" required><option value="1">Lantai 1</option><option value="2">Lantai 2</option></select></label>
+        <label><span>Cluster</span><input id="lineCluster" type="text" maxlength="40" placeholder="Contoh: A" required></label>
+        <label class="full"><span>Nama Line</span><input id="lineName" type="text" maxlength="100" placeholder="Contoh: Line Baru" required></label>
+        <label><span>Posisi X (%)</span><input id="lineLeft" type="number" min="0" max="100" step="0.5" value="50" required></label>
+        <label><span>Posisi Y (%)</span><input id="lineTop" type="number" min="0" max="100" step="0.5" value="50" required></label>
         <div id="lineFormMessage" class="form-message full" aria-live="polite"></div>
         <div class="modal-actions full">
           <button id="cancelLineBtn" class="secondary-btn" type="button">Batal</button>
-          <button class="primary-btn" type="submit">Simpan Line</button>
+          <button class="primary-btn" type="submit">Simpan</button>
         </div>
       </form>
     </div>
   </div>
-
+  {% endif %}
 </main>
 
 <footer>
-  <span>Auto refresh: 5 detik</span>
+  <span>{% if mode == 'dashboard' %}Auto refresh: 5 detik{% else %}Mode Setting — perubahan layout disimpan manual{% endif %}</span>
   <span id="dbStatus">Database: menghubungkan...</span>
 </footer>
-
+<script>
+  window.APP_MODE = "{{ mode }}";
+</script>
 <script src="/static/app.js"></script>
 </body>
 </html>
