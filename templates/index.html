@@ -12,9 +12,12 @@
     <div class="company">PT. DHARMA PRECISION PARTS</div>
     <h1>ANDON BOARD — STATUS CLUSTER PRODUKSI</h1>
   </div>
-  <div class="clock-wrap">
-    <div id="clock" class="clock">--:--:--</div>
-    <div id="date" class="date">--</div>
+  <div class="top-actions">
+    <button id="addLineBtn" class="action-btn" type="button">＋ TAMBAH LINE</button>
+    <div class="clock-wrap">
+      <div id="clock" class="clock">--:--:--</div>
+      <div id="date" class="date">--</div>
+    </div>
   </div>
 </header>
 
@@ -46,8 +49,15 @@
       </div>
     </div>
     <div id="layoutMap" class="layout-map">
-      <img id="layoutImage" src="/static/denah.png" alt="Denah lantai 1">
-      <div id="markers"></div>
+      <div class="zoom-controls" aria-label="Kontrol zoom denah">
+        <button id="zoomOutBtn" type="button" title="Zoom out">−</button>
+        <button id="zoomResetBtn" type="button" class="zoom-value" title="Reset zoom">100%</button>
+        <button id="zoomInBtn" type="button" title="Zoom in">+</button>
+      </div>
+      <div id="mapStage" class="map-stage">
+        <img id="layoutImage" src="/static/denah.png" alt="Denah lantai 1">
+        <div id="markers"></div>
+      </div>
     </div>
   </section>
 
@@ -81,6 +91,49 @@
       </table>
     </div>
   </section>
+
+  <div id="lineModal" class="modal hidden" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="lineModalTitle">
+      <div class="modal-head">
+        <div>
+          <div id="lineModalTitle" class="modal-title">TAMBAH LINE</div>
+          <div class="modal-subtitle">Line baru akan langsung masuk ke dashboard sebagai Berjalan Normal.</div>
+        </div>
+        <button id="closeLineModal" class="modal-close" type="button" aria-label="Tutup">×</button>
+      </div>
+      <form id="lineForm" class="line-form">
+        <label>
+          <span>Lantai</span>
+          <select id="lineFloor" required>
+            <option value="1">Lantai 1</option>
+            <option value="2">Lantai 2</option>
+          </select>
+        </label>
+        <label>
+          <span>Cluster</span>
+          <input id="lineCluster" type="text" maxlength="40" placeholder="Contoh: A" required>
+        </label>
+        <label class="full">
+          <span>Nama Line</span>
+          <input id="lineName" type="text" maxlength="100" placeholder="Contoh: Line Baru" required>
+        </label>
+        <div class="position-help full">Posisi marker di denah menggunakan persentase dari kiri dan atas. Bisa disesuaikan nanti.</div>
+        <label>
+          <span>Posisi X (%)</span>
+          <input id="lineLeft" type="number" min="0" max="100" step="0.5" value="50" required>
+        </label>
+        <label>
+          <span>Posisi Y (%)</span>
+          <input id="lineTop" type="number" min="0" max="100" step="0.5" value="50" required>
+        </label>
+        <div id="lineFormMessage" class="form-message full" aria-live="polite"></div>
+        <div class="modal-actions full">
+          <button id="cancelLineBtn" class="secondary-btn" type="button">Batal</button>
+          <button class="primary-btn" type="submit">Simpan Line</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
 </main>
 

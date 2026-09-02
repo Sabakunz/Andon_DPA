@@ -81,3 +81,8 @@ ESP32 Node → LoRa → ESP32 Gateway → USB → PC Gateway Client → HTTPS �
 ```
 
 Untuk deployment cloud, biarkan `LORA_ENABLED=false`. Integrasi Gateway Client akan ditambahkan pada tahap berikutnya.
+
+## Fitur UI terbaru
+- **Tambah Line:** tombol `＋ TAMBAH LINE` untuk menambahkan line baru ke lantai 1 atau 2, menentukan cluster, nama line, serta posisi marker X/Y pada denah.
+- **Zoom Denah:** tombol `−`, `100%`, `+` pada denah. Zoom juga dapat dilakukan dengan scroll mouse di area denah.
+- Posisi marker tersimpan di database sebagai persentase agar tetap mengikuti ukuran denah.

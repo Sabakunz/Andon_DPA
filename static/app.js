@@ -103,7 +103,11 @@ function renderLayout(){
 
   const positions = currentFloor===2 ? LAYOUT_POSITIONS_FLOOR2 : LAYOUT_POSITIONS;
   departments.filter(d=>Number(d.floor||1)===currentFloor).forEach(d=>{
-    const pos=positions[d.department];
+    const fallback=positions[d.department];
+    const hasDbPosition=Number.isFinite(Number(d.position_left)) && Number.isFinite(Number(d.position_top));
+    const pos=hasDbPosition
+      ? {left:`${Number(d.position_left)}%`, top:`${Number(d.position_top)}%`}
+      : fallback;
     if(!pos)return;
 
     const cls=statusClass(d.status);
@@ -207,6 +211,105 @@ function setFloor(floor){
   renderLayout();
   loadHistory();
 }
+
+// ============================================================
+// ZOOM DENAH
+// ============================================================
+let mapZoom = 1;
+const ZOOM_MIN = 0.6;
+const ZOOM_MAX = 2.5;
+const ZOOM_STEP = 0.1;
+
+function applyMapZoom(){
+  const map=document.getElementById('layoutMap');
+  const stage=document.getElementById('mapStage');
+  const value=document.getElementById('zoomResetBtn');
+  if(!map || !stage)return;
+  stage.style.setProperty('--map-zoom', mapZoom.toFixed(2));
+  map.style.setProperty('--map-zoom', mapZoom.toFixed(2));
+  if(value)value.textContent=`${Math.round(mapZoom*100)}%`;
+}
+
+function setMapZoom(value){
+  mapZoom=Math.min(ZOOM_MAX,Math.max(ZOOM_MIN,Math.round(value*10)/10));
+  applyMapZoom();
+}
+
+document.getElementById('zoomInBtn')?.addEventListener('click',()=>setMapZoom(mapZoom+ZOOM_STEP));
+document.getElementById('zoomOutBtn')?.addEventListener('click',()=>setMapZoom(mapZoom-ZOOM_STEP));
+document.getElementById('zoomResetBtn')?.addEventListener('click',()=>setMapZoom(1));
+document.getElementById('layoutMap')?.addEventListener('wheel',(e)=>{
+  e.preventDefault();
+  setMapZoom(mapZoom + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+},{passive:false});
+applyMapZoom();
+
+// ============================================================
+// TAMBAH LINE
+// ============================================================
+const lineModal=document.getElementById('lineModal');
+const lineForm=document.getElementById('lineForm');
+const lineMessage=document.getElementById('lineFormMessage');
+
+function openLineModal(){
+  lineMessage.textContent='';
+  lineMessage.className='form-message full';
+  document.getElementById('lineFloor').value=String(currentFloor);
+  lineModal.classList.remove('hidden');
+  lineModal.setAttribute('aria-hidden','false');
+  document.getElementById('lineName').focus();
+}
+
+function closeLineModal(){
+  lineModal.classList.add('hidden');
+  lineModal.setAttribute('aria-hidden','true');
+}
+
+document.getElementById('addLineBtn')?.addEventListener('click',openLineModal);
+document.getElementById('closeLineModal')?.addEventListener('click',closeLineModal);
+document.getElementById('cancelLineBtn')?.addEventListener('click',closeLineModal);
+lineModal?.addEventListener('click',(e)=>{if(e.target===lineModal)closeLineModal();});
+document.addEventListener('keydown',(e)=>{if(e.key==='Escape' && !lineModal.classList.contains('hidden'))closeLineModal();});
+
+lineForm?.addEventListener('submit',async(e)=>{
+  e.preventDefault();
+  const payload={
+    floor:Number(document.getElementById('lineFloor').value),
+    cluster:document.getElementById('lineCluster').value.trim(),
+    department:document.getElementById('lineName').value.trim(),
+    position_left:Number(document.getElementById('lineLeft').value),
+    position_top:Number(document.getElementById('lineTop').value)
+  };
+  lineMessage.textContent='Menyimpan...';
+  lineMessage.className='form-message full';
+  try{
+    const r=await fetch('/api/departments',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    const data=await r.json();
+    if(!r.ok)throw new Error(data.error||'Gagal menambah line');
+    lineMessage.textContent='Line berhasil ditambahkan.';
+    lineMessage.className='form-message full success';
+    lineForm.reset();
+    document.getElementById('lineFloor').value=String(payload.floor);
+    document.getElementById('lineLeft').value='50';
+    document.getElementById('lineTop').value='50';
+    currentFloor=payload.floor;
+    document.querySelectorAll('.floor-tab').forEach(btn=>btn.classList.toggle('active',Number(btn.dataset.floor)===currentFloor));
+    const cfg=FLOOR_CONFIG[currentFloor];
+    document.getElementById('layoutTitle').textContent=cfg.title;
+    const img=document.getElementById('layoutImage');
+    img.src=cfg.image; img.alt=cfg.alt;
+    await load();
+    await loadHistory();
+    setTimeout(closeLineModal,500);
+  }catch(err){
+    lineMessage.textContent=err.message;
+    lineMessage.className='form-message full error';
+  }
+});
 
 document.querySelectorAll('.floor-tab').forEach(btn=>{
   btn.addEventListener('click',()=>setFloor(btn.dataset.floor));

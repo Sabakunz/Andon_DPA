@@ -89,3 +89,53 @@ footer{border-top:1px solid var(--line);padding:12px 32px;color:#718096;font-siz
 .floor-tab:hover{border-color:#4b596b;color:#eef3f8}
 .floor-tab.active{background:var(--green);color:#04150b;border-color:var(--green);box-shadow:0 0 18px rgba(25,196,91,.18)}
 .kpis{grid-template-columns:repeat(2,1fr)}main{padding:15px}.cards{grid-template-columns:1fr}.clock-wrap{display:none}.layout-map>img{height:300px}.layout-map{min-height:300px}.marker{font-size:8px;min-width:65px;max-width:110px}}
+
+
+/* Header actions */
+.top-actions{display:flex;align-items:flex-end;gap:18px}
+.action-btn{appearance:none;border:1px solid var(--green);background:rgba(25,196,91,.10);color:var(--green);padding:10px 14px;border-radius:9px;font-size:11px;font-weight:900;letter-spacing:.7px;cursor:pointer;transition:.2s}
+.action-btn:hover{background:var(--green);color:#04150b;box-shadow:0 0 18px rgba(25,196,91,.18)}
+
+/* Zoom */
+.layout-map{overflow:auto;position:relative;--map-base-height:430px;--map-zoom:1}
+.map-stage{position:relative;width:100%;height:var(--map-base-height);transform:scale(var(--map-zoom));transform-origin:top left;transition:transform .18s ease}
+.layout-map{height:calc(var(--map-base-height) * var(--map-zoom))}
+.map-stage>img{width:100%;height:var(--map-base-height);object-fit:contain;display:block}
+.zoom-controls{position:absolute;right:12px;top:12px;z-index:30;display:flex;align-items:center;gap:4px;padding:4px;background:rgba(8,12,18,.82);border:1px solid rgba(255,255,255,.12);border-radius:9px;backdrop-filter:blur(6px)}
+.zoom-controls button{width:34px;height:30px;border:0;border-radius:6px;background:#18212c;color:#eef3f8;font-size:20px;font-weight:800;cursor:pointer;line-height:1}
+.zoom-controls button:hover{background:#273444}
+.zoom-controls .zoom-value{width:52px;font-size:10px;letter-spacing:.5px}
+
+/* Add line modal */
+.modal{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.68);display:flex;align-items:center;justify-content:center;padding:20px}
+.modal.hidden{display:none}
+.modal-card{width:min(560px,100%);background:#101720;border:1px solid #334052;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.5);padding:20px}
+.modal-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:18px}
+.modal-title{font-size:15px;font-weight:900;letter-spacing:1px}
+.modal-subtitle{font-size:11px;color:var(--muted);margin-top:5px;line-height:1.45}
+.modal-close{border:0;background:transparent;color:#9aa6b5;font-size:26px;line-height:1;cursor:pointer;padding:0 4px}
+.line-form{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.line-form label{display:flex;flex-direction:column;gap:6px}
+.line-form label span{font-size:10px;color:#9ca7b5;text-transform:uppercase;letter-spacing:.7px;font-weight:800}
+.line-form input,.line-form select{width:100%;border:1px solid #2c3847;background:#0b1118;color:#eef3f8;border-radius:8px;padding:10px 11px;font-size:12px;outline:none}
+.line-form input:focus,.line-form select:focus{border-color:var(--green);box-shadow:0 0 0 2px rgba(25,196,91,.10)}
+.full{grid-column:1/-1}
+.position-help{font-size:10px;color:#7f8b9b;background:#0c1219;border:1px dashed #2b3644;border-radius:8px;padding:9px 10px;line-height:1.45}
+.modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:2px}
+.primary-btn,.secondary-btn{border-radius:8px;padding:10px 15px;font-size:11px;font-weight:900;cursor:pointer}
+.primary-btn{border:1px solid var(--green);background:var(--green);color:#04150b}
+.secondary-btn{border:1px solid #344052;background:#17202b;color:#d5dce5}
+.form-message{min-height:16px;font-size:11px;color:#9ca7b5}
+.form-message.success{color:var(--green)}
+.form-message.error{color:var(--red)}
+
+@media(max-width:1050px){
+  .map-stage{--map-base-height:360px}
+  .layout-map{--map-base-height:360px}
+}
+@media(max-width:700px){
+  .topbar{align-items:flex-start}.top-actions{align-items:flex-start;gap:8px;flex-direction:column-reverse}.action-btn{padding:8px 10px;font-size:10px}
+  .map-stage{--map-base-height:300px}.layout-map{--map-base-height:300px}
+  .line-form{grid-template-columns:1fr}
+  .full{grid-column:1}
+}

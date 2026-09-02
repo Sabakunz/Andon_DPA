@@ -13,7 +13,9 @@ CREATE TABLE departments (
     target_output INTEGER DEFAULT 0,
     operator TEXT,
     last_update TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-    floor INTEGER NOT NULL DEFAULT 1
+    floor INTEGER NOT NULL DEFAULT 1,
+    position_left REAL,
+    position_top REAL
 );
 
 

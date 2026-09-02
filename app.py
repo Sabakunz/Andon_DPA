@@ -50,6 +50,29 @@ def init_history_table():
     columns = [row["name"] for row in conn.execute("PRAGMA table_info(departments)").fetchall()]
     if "floor" not in columns:
         conn.execute("ALTER TABLE departments ADD COLUMN floor INTEGER NOT NULL DEFAULT 1")
+    if "position_left" not in columns:
+        conn.execute("ALTER TABLE departments ADD COLUMN position_left REAL")
+    if "position_top" not in columns:
+        conn.execute("ALTER TABLE departments ADD COLUMN position_top REAL")
+
+    # Posisi default marker untuk line lama yang belum punya koordinat.
+    # Nilai disimpan sebagai persentase agar tetap mengikuti ukuran denah.
+    default_positions = {
+        "Sleeve": (56.5, 60), "Coller Guide": (50, 60), "Valve KOJ": (45.5, 60),
+        "3TF & 22MY": (50.5, 72), "Pipe Section": (46, 72), "Cap Header": (54, 81.5),
+        "Tube Evaporator": (49, 81.5), "Tank Header": (45.3, 81.5),
+        "Seat Valve HKZR & Boss Drive Face K2SA": (41.5, 74),
+        "Pivot Camchain, Shaft In & Exh, Bus M Stand": (42, 60), "Rod HKZR": (39, 64.5),
+        "Cutting": (37.5, 74), "Rod HKOJ": (37.5, 46), "Nut Hex Cap": (37.5, 35),
+        "Cutting Size": (37.5, 29.5), "NC": (52, 52), "F Yoke 5D9": (64, 71),
+        "Final Check": (61, 84),
+    }
+    for department_name, (left, top) in default_positions.items():
+        conn.execute(
+            "UPDATE departments SET position_left=?, position_top=? "
+            "WHERE department=? AND (position_left IS NULL OR position_top IS NULL)",
+            (left, top, department_name),
+        )
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS andon_events (
@@ -98,8 +121,8 @@ def init_history_table():
         else:
             conn.execute("""
                 INSERT INTO departments
-                (cluster, department, status, priority, due_date, issue, target_output, operator, floor)
-                VALUES (?, ?, 'Berjalan Normal', 'Normal', date('now','localtime'), NULL, 0, NULL, 2)
+                (cluster, department, status, priority, due_date, issue, target_output, operator, floor, position_left, position_top)
+                VALUES (?, ?, 'Berjalan Normal', 'Normal', date('now','localtime'), NULL, 0, NULL, 2, NULL, NULL)
             """, (cluster, department))
 
     conn.commit()
@@ -283,7 +306,7 @@ def departments():
     conn = get_db()
     rows = conn.execute("""
         SELECT id, cluster, department, status, priority, due_date,
-               issue, target_output, operator, last_update, floor
+               issue, target_output, operator, last_update, floor, position_left, position_top
         FROM departments
         ORDER BY cluster, id
     """).fetchall()
@@ -343,6 +366,49 @@ def lora_command(department_id):
 
     sent, message = send_lora_command(department_id, command)
     return jsonify({"ok": True, "sent_to_lora": sent, "message": message})
+
+
+@app.post("/api/departments")
+def create_department():
+    payload = request.get_json(silent=True) or {}
+    cluster = str(payload.get("cluster", "")).strip()
+    department = str(payload.get("department", "")).strip()
+    floor = payload.get("floor", 1)
+    position_left = payload.get("position_left")
+    position_top = payload.get("position_top")
+
+    if not cluster or not department:
+        return jsonify({"error": "Cluster dan nama line wajib diisi"}), 400
+    try:
+        floor = int(floor)
+        if floor not in (1, 2):
+            raise ValueError
+        position_left = float(position_left) if position_left is not None else 50.0
+        position_top = float(position_top) if position_top is not None else 50.0
+        if not (0 <= position_left <= 100 and 0 <= position_top <= 100):
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({"error": "Lantai harus 1/2 dan posisi X/Y harus 0-100%"}), 400
+
+    conn = get_db()
+    try:
+        cur = conn.execute("""
+            INSERT INTO departments
+            (cluster, department, status, priority, due_date, issue, target_output, operator, floor, position_left, position_top)
+            VALUES (?, ?, 'Berjalan Normal', 'Normal', date('now','localtime'), NULL, 0, NULL, ?, ?, ?)
+        """, (cluster, department, floor, position_left, position_top))
+        conn.commit()
+        row = conn.execute("""
+            SELECT id, cluster, department, status, priority, due_date, issue,
+                   target_output, operator, last_update, floor, position_left, position_top
+            FROM departments WHERE id=?
+        """, (cur.lastrowid,)).fetchone()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        conn.close()
+        return jsonify({"error": "Nama line sudah digunakan. Gunakan nama yang berbeda."}), 409
+    conn.close()
+    return jsonify({"ok": True, "department": dict(row)}), 201
 
 
 @app.put("/api/departments/<int:department_id>")
