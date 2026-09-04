@@ -67,12 +67,49 @@ function renderBoard(){
     items.forEach(d=>{
       const cls=statusClass(d.status), card=document.createElement('article');
       card.className=`card ${cls} ${cls!=='normal'?'status-pulse':''}`;
-      card.innerHTML=`<h3>${esc(d.department)}</h3><span class="badge">${esc(displayStatus(d.status))}</span>`;
+      card.innerHTML=`<h3>${esc(d.department)}</h3>
+        <div class="card-status-row">
+          <span class="badge">${esc(displayStatus(d.status))}</span>
+          <button class="reset-line-btn" type="button" title="Reset ${esc(d.department)} menjadi normal" data-reset-id="${d.id}">↻ RESET</button>
+        </div>`;
+      card.querySelector('.reset-line-btn')?.addEventListener('click',()=>resetLine(d.id));
       cards.appendChild(card);
     });
     board.appendChild(section);
   });
 }
+async function resetLine(id){
+  const d=departments.find(x=>Number(x.id)===Number(id));
+  if(!d)return;
+  if(displayStatus(d.status)===STATUS.NORMAL)return;
+
+  const buttons=document.querySelectorAll(`[data-reset-id=\"${id}\"]`);
+  buttons.forEach(b=>{b.disabled=true;b.textContent='RESET...';});
+  try{
+    const r=await fetch(`/api/lora/command/${id}`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({command:'RESET'})
+    });
+    const data=await r.json();
+    if(!r.ok)throw new Error(data.error||'Gagal reset line');
+
+    // Update lokal lebih dulu agar warna line langsung berubah hijau tanpa menunggu polling.
+    d.status=STATUS.NORMAL;
+    d.priority='Normal';
+    d.issue=null;
+    renderBoard();
+    renderLayout();
+    renderKpi();
+    await loadHistory();
+  }catch(e){
+    alert(`Gagal reset ${d.department}: ${e.message}`);
+    buttons.forEach(b=>{b.disabled=false;b.textContent='↻ RESET';});
+  }
+}
+
+window.resetLine=resetLine;
+
 function renderLayout(){
   const markers=document.getElementById('markers'); if(!markers)return;
   markers.innerHTML='';

@@ -51,8 +51,12 @@ main{padding:20px 32px 30px}
 .card.danger{background:var(--red);color:#fff;--pulse-color:var(--red)}
 .card.warning{background:var(--amber);color:#1a1000;--pulse-color:var(--amber)}
 .card.quality{background:var(--blue);color:#fff;--pulse-color:var(--blue)}
-.card h3{margin:0 0 22px;font-size:18px}
+.card h3{margin:0 0 14px;font-size:18px}
+.card-status-row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .badge{display:inline-block;border-radius:18px;padding:7px 12px;background:rgba(0,0,0,.14);font-size:13px;font-weight:800}
+.reset-line-btn{appearance:none;border:1px solid rgba(255,255,255,.55);background:rgba(0,0,0,.18);color:inherit;border-radius:8px;padding:7px 10px;font-size:10px;font-weight:900;letter-spacing:.6px;cursor:pointer;transition:.18s;white-space:nowrap}
+.reset-line-btn:hover{background:rgba(255,255,255,.18);transform:translateY(-1px)}
+.reset-line-btn:disabled{opacity:.65;cursor:wait;transform:none}
 
 /* Pulse hanya untuk Machine, Material, Quality. Normal tidak pulse. */
 .status-pulse{animation:cardPulse 1.1s ease-out infinite}
