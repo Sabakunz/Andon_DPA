@@ -1,10 +1,14 @@
 from flask import Flask, render_template, jsonify, request, redirect, url_for, session
-import sqlite3
 from pathlib import Path
+
+from dotenv import load_dotenv
+from supabase import create_client
+import paho.mqtt.client as mqtt
 import threading
 import time
 import os
 import hmac
+import json
 
 try:
     import serial
@@ -12,10 +16,187 @@ except ImportError:
     serial = None
 
 BASE = Path(__file__).resolve().parent
-# Railway: set DATABASE_PATH to a mounted persistent volume path such as
-# /app/data/andon.db. Locally it falls back to data/andon.db.
-DB = Path(os.getenv("DATABASE_PATH", str(BASE / "data" / "andon.db"))).expanduser()
-DB.parent.mkdir(parents=True, exist_ok=True)
+load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+MQTT_HOST = os.getenv("MQTT_HOST")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_TOPIC_PREFIX = os.getenv("MQTT_TOPIC_PREFIX", "andon-system-demo")
+MQTT_ENABLED = os.getenv("MQTT_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+
+
+def on_mqtt_connect(client, userdata, flags, reason_code, properties):
+    print("MQTT CONNECT:", reason_code)
+
+    if reason_code == 0:
+        topic = f"{MQTT_TOPIC_PREFIX}/#"
+        client.subscribe(topic)
+        print("MQTT SUBSCRIBED:", topic)
+
+
+def _problem_type_from_field(field):
+    return {
+        "machine": "Machine",
+        "material": "Material",
+        "quality": "Quality",
+    }.get(field)
+
+
+def _normalize_state_value(value):
+    if isinstance(value, bool):
+        return 1 if value else 0
+    try:
+        return 1 if int(value) else 0
+    except (TypeError, ValueError):
+        raise ValueError("nilai state harus 0 atau 1")
+
+
+def update_station_state(station_id, changes, source="MQTT"):
+    """Update only fields yang dikirim, lalu sinkronkan histori Supabase."""
+    station_id = int(station_id)
+
+    allowed = {"machine", "quality", "material"}
+    changes = {k: v for k, v in changes.items() if k in allowed}
+    if not changes:
+        return False
+
+    normalized = {k: _normalize_state_value(v) for k, v in changes.items()}
+
+    existing_result = (
+        supabase.table("andon_current_state")
+        .select("station_id,machine,quality,material,last_update")
+        .eq("station_id", station_id)
+        .limit(1)
+        .execute()
+    )
+
+    if existing_result.data:
+        old = existing_result.data[0]
+    else:
+        old = {
+            "station_id": station_id,
+            "machine": 0,
+            "quality": 0,
+            "material": 0,
+        }
+
+    # Hanya field yang dikirim yang berubah; field yang tidak dikirim dipertahankan.
+    next_state = {
+        "station_id": station_id,
+        "machine": int(old.get("machine", 0) or 0),
+        "quality": int(old.get("quality", 0) or 0),
+        "material": int(old.get("material", 0) or 0),
+    }
+    next_state.update(normalized)
+
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+
+    # Simpan current state.
+    supabase.table("andon_current_state").upsert(
+        {
+            **next_state,
+            "last_update": now_iso,
+        },
+        on_conflict="station_id",
+    ).execute()
+
+    # Sinkronkan histori per jenis masalah.
+    for field, new_value in normalized.items():
+        old_value = int(old.get(field, 0) or 0)
+        new_value = int(new_value)
+        problem_type = _problem_type_from_field(field)
+
+        if old_value == new_value:
+            continue
+
+        active_result = (
+            supabase.table("status_history")
+            .select("id,start_time")
+            .eq("station_id", station_id)
+            .eq("problem_type", problem_type)
+            .is_("end_time", "null")
+            .order("id", desc=True)
+            .limit(1)
+            .execute()
+        )
+        active = active_result.data[0] if active_result.data else None
+
+        if new_value == 1 and old_value == 0:
+            supabase.table("status_history").insert(
+                {
+                    "station_id": station_id,
+                    "problem_type": problem_type,
+                    "start_time": now_iso,
+                    "end_time": None,
+                    "duration_seconds": None,
+                }
+            ).execute()
+
+        elif new_value == 0 and old_value == 1 and active:
+            start_time = active.get("start_time")
+            duration_seconds = None
+
+            if start_time:
+                try:
+                    started = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                    duration_seconds = max(0, int((now - started).total_seconds()))
+                except (ValueError, TypeError):
+                    duration_seconds = None
+
+            supabase.table("status_history").update(
+                {
+                    "end_time": now_iso,
+                    "duration_seconds": duration_seconds,
+                }
+            ).eq("id", active["id"]).execute()
+
+    print(
+        f"{source} STATE -> Station {station_id} | "
+        f"Machine={next_state['machine']} | "
+        f"Quality={next_state['quality']} | "
+        f"Material={next_state['material']}"
+    )
+    return True
+
+
+def on_mqtt_message(client, userdata, message):
+    print("MQTT MESSAGE:", message.topic)
+
+    try:
+        payload = message.payload.decode("utf-8", errors="ignore")
+        print("MQTT PAYLOAD:", payload)
+
+        data = json.loads(payload)
+
+        station_id = data.get("station")
+        if station_id is None:
+            print("MQTT ERROR: station tidak ditemukan")
+            return
+
+        changes = {}
+        for field in ("machine", "quality", "material"):
+            if field in data:
+                changes[field] = data[field]
+
+        if not changes:
+            print("MQTT ERROR: tidak ada field machine/quality/material")
+            return
+
+        update_station_state(station_id, changes, source="MQTT")
+
+    except Exception as e:
+        print("MQTT PROCESS ERROR:", e)
+
+
+mqtt_client.on_connect = on_mqtt_connect
+mqtt_client.on_message = on_mqtt_message
 
 # ============================================================
 # LORA GATEWAY SERIAL SETTINGS
@@ -56,219 +237,45 @@ def require_login():
     return redirect(url_for("login"))
 
 
-def get_db():
-    DB.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_history_table():
-    conn = get_db()
-
-    columns = [row["name"] for row in conn.execute("PRAGMA table_info(departments)").fetchall()]
-    if "floor" not in columns:
-        conn.execute("ALTER TABLE departments ADD COLUMN floor INTEGER NOT NULL DEFAULT 1")
-    if "position_left" not in columns:
-        conn.execute("ALTER TABLE departments ADD COLUMN position_left REAL")
-    if "position_top" not in columns:
-        conn.execute("ALTER TABLE departments ADD COLUMN position_top REAL")
-    if "is_active" not in columns:
-        conn.execute("ALTER TABLE departments ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
-
-    # Posisi default marker untuk line lama yang belum punya koordinat.
-    # Nilai disimpan sebagai persentase agar tetap mengikuti ukuran denah.
-    default_positions = {
-        "Sleeve": (56.5, 60), "Coller Guide": (50, 60), "Valve KOJ": (45.5, 60),
-        "3TF & 22MY": (50.5, 72), "Pipe Section": (46, 72), "Cap Header": (54, 81.5),
-        "Tube Evaporator": (49, 81.5), "Tank Header": (45.3, 81.5),
-        "Seat Valve HKZR & Boss Drive Face K2SA": (41.5, 74),
-        "Pivot Camchain, Shaft In & Exh, Bus M Stand": (42, 60), "Rod HKZR": (39, 64.5),
-        "Cutting": (37.5, 74), "Rod HKOJ": (37.5, 46), "Nut Hex Cap": (37.5, 35),
-        "Cutting Size": (37.5, 29.5), "NC": (52, 52), "F Yoke 5D9": (64, 71),
-        "Final Check": (61, 84),
+def update_station_status_from_command(station_id, command):
+    mapping = {
+        "MACHINE": {"machine": 1, "quality": 0, "material": 0},
+        "MATERIAL": {"material": 1, "machine": 0, "quality": 0},
+        "QUALITY": {"quality": 1, "machine": 0, "material": 0},
+        "RESET": {"machine": 0, "quality": 0, "material": 0},
     }
-    for department_name, (left, top) in default_positions.items():
-        conn.execute(
-            "UPDATE departments SET position_left=?, position_top=? "
-            "WHERE department=? AND (position_left IS NULL OR position_top IS NULL)",
-            (left, top, department_name),
-        )
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS andon_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            department_id INTEGER NOT NULL,
-            problem_type TEXT NOT NULL CHECK(problem_type IN ('Machine','Material','Quality')),
-            start_time TEXT NOT NULL,
-            end_time TEXT,
-            duration_seconds INTEGER,
-            FOREIGN KEY (department_id) REFERENCES departments(id)
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_andon_events_department ON andon_events(department_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_andon_events_start ON andon_events(start_time)")
-
-    # Normalisasi nama line lantai 1 agar tanpa kata 'Line'.
-    floor1_renames = {
-        'Line Sleeve': 'Sleeve',
-        'Line Coller Guide': 'Coller Guide',
-        'Line Valve KOJ': 'Valve KOJ',
-        'Line 3TF & 22MY': '3TF & 22MY',
-        'Line Cap Header': 'Cap Header',
-    }
-    for old_name, new_name in floor1_renames.items():
-        conn.execute(
-            "UPDATE departments SET department=? WHERE department=? AND floor=1",
-            (new_name, old_name),
-        )
-
-    # Lantai 2: Cluster E hanya NC. Cluster F hanya F Yoke 5D9.
-    # Final Check berdiri sendiri.
-    floor2 = [
-        ("E", "NC"),
-        ("F", "F Yoke 5D9"),
-        ("Final Check", "Final Check"),
-    ]
-    for cluster, department in floor2:
-        exists = conn.execute(
-            "SELECT id FROM departments WHERE department=?", (department,)
-        ).fetchone()
-        if exists:
-            conn.execute(
-                "UPDATE departments SET cluster=?, floor=2 WHERE department=?",
-                (cluster, department),
-            )
-        else:
-            conn.execute("""
-                INSERT INTO departments
-                (cluster, department, status, priority, due_date, issue, target_output, operator, floor, position_left, position_top)
-                VALUES (?, ?, 'Berjalan Normal', 'Normal', date('now','localtime'), NULL, 0, NULL, 2, NULL, NULL)
-            """, (cluster, department))
-
-    conn.commit()
-    conn.close()
-
-def _problem_type_from_status(status):
-    return {
-        "Machine Problem": "Machine",
-        "Material Problem": "Material",
-        "Quality Problem": "Quality",
-    }.get(status)
-
-
-def set_department_status(department_id, status, priority=None, issue=None, operator=None):
-    conn = get_db()
-
-    current = conn.execute(
-        "SELECT status FROM departments WHERE id=?", (department_id,)
-    ).fetchone()
-    if current is None:
-        conn.close()
+    changes = mapping.get(command.upper())
+    if changes is None:
         return False
-
-    old_status = current["status"]
-    updates = {"status": status}
-    if priority is not None:
-        updates["priority"] = priority
-    if issue is not None:
-        updates["issue"] = issue
-    if operator is not None:
-        updates["operator"] = operator
-
-    sets = ", ".join(f"{k}=?" for k in updates)
-    values = list(updates.values()) + [department_id]
-    cur = conn.execute(
-        f"UPDATE departments SET {sets}, last_update=datetime('now','localtime') WHERE id=?",
-        values,
-    )
-
-    # Catat histori Andon hanya ketika status benar-benar berubah.
-    old_problem = _problem_type_from_status(old_status)
-    new_problem = _problem_type_from_status(status)
-    now = conn.execute("SELECT datetime('now','localtime')").fetchone()[0]
-
-    if old_problem != new_problem:
-        # Tutup event masalah yang masih aktif (jika ada).
-        active = conn.execute(
-            "SELECT id, start_time FROM andon_events "
-            "WHERE department_id=? AND end_time IS NULL "
-            "ORDER BY id DESC LIMIT 1",
-            (department_id,),
-        ).fetchone()
-        if active:
-            duration = conn.execute(
-                "SELECT CAST((julianday(?) - julianday(?)) * 86400 AS INTEGER)",
-                (now, active["start_time"]),
-            ).fetchone()[0] or 0
-            conn.execute(
-                "UPDATE andon_events SET end_time=?, duration_seconds=? WHERE id=?",
-                (now, duration, active["id"]),
-            )
-
-        # Jika status baru adalah masalah, buka event baru.
-        if new_problem:
-            conn.execute(
-                "INSERT INTO andon_events "
-                "(department_id, problem_type, start_time) VALUES (?, ?, ?)",
-                (department_id, new_problem, now),
-            )
-
-    conn.commit()
-    conn.close()
-    return cur.rowcount > 0
-
-
-def send_lora_command(department_id, command):
-    """Kirim command dari Flask -> USB serial -> LoRa gateway -> node."""
-    if not LORA_ENABLED:
-        return False, "Mode demo - LoRa belum diaktifkan"
-    if serial_conn is None or not serial_conn.is_open:
-        return False, "Gateway LoRa tidak terhubung"
-
-    line = f"CMD|{department_id}|{command}\n"
-    try:
-        with serial_lock:
-            serial_conn.write(line.encode("utf-8"))
-            serial_conn.flush()
-        return True, "OK"
-    except Exception as exc:
-        return False, str(exc)
+    return update_station_state(station_id, changes, source="LoRa/API")
 
 
 def process_gateway_line(line):
-    """Format yang diterima dari gateway: RX|NODE01|1|ANDON"""
+    """Format gateway: RX|NODE01|2|MACHINE"""
     global serial_status
+
     line = line.strip()
     if not line:
         return
 
     print("<--", line)
-
     parts = line.split("|")
     if len(parts) < 4 or parts[0] != "RX":
         return
 
-    _, node_id, department_id, command = parts[:4]
+    _, node_id, station_id, command = parts[:4]
     try:
-        department_id = int(department_id)
+        station_id = int(station_id)
     except ValueError:
         return
 
     command = command.upper()
+    ok = update_station_status_from_command(station_id, command)
 
-    if command == "MACHINE":
-        ok = set_department_status(department_id, "Machine Problem")
-    elif command == "MATERIAL":
-        ok = set_department_status(department_id, "Material Problem")
-    elif command == "QUALITY":
-        ok = set_department_status(department_id, "Quality Problem")
-    elif command == "RESET":
-        ok = set_department_status(department_id, "Berjalan Normal")
-    else:
-        ok = False
-
-    serial_status = f"Gateway OK | {node_id} | {command} | DB={'OK' if ok else 'ID tidak ditemukan'}"
+    serial_status = (
+        f"Gateway OK | {node_id} | {command} | "
+        f"DB={'OK' if ok else 'GAGAL'}"
+    )
 
 
 def serial_reader():
@@ -290,6 +297,7 @@ def serial_reader():
             raw = serial_conn.readline()
             if raw:
                 process_gateway_line(raw.decode("utf-8", errors="ignore"))
+
         except Exception as exc:
             serial_status = f"Gateway error: {exc}"
             print(serial_status)
@@ -302,19 +310,58 @@ def serial_reader():
             time.sleep(3)
 
 
-init_history_table()
+def start_mqtt():
+    if not MQTT_ENABLED:
+        print("MQTT DISABLED")
+        return
+
+    if not MQTT_HOST:
+        print("MQTT DISABLED: MQTT_HOST belum diatur")
+        return
+
+    try:
+        mqtt_client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
+        mqtt_client.loop_start()
+        print(f"MQTT STARTED: {MQTT_HOST}:{MQTT_PORT}")
+    except Exception as exc:
+        print("MQTT START ERROR:", exc)
+
+
+
+def send_lora_command(department_id, command):
+    """Kirim command dari Flask -> USB serial -> LoRa gateway -> node."""
+    if not LORA_ENABLED:
+        return False, "Mode demo - LoRa belum diaktifkan"
+    if serial_conn is None or not serial_conn.is_open:
+        return False, "Gateway LoRa tidak terhubung"
+
+    line = f"CMD|{department_id}|{command}\n"
+    try:
+        with serial_lock:
+            serial_conn.write(line.encode("utf-8"))
+            serial_conn.flush()
+        return True, "OK"
+    except Exception as exc:
+        return False, str(exc)
+
+
+
+
 
 
 @app.get("/health")
 def health():
-    """Lightweight health check for Railway."""
+    """Health check tanpa ketergantungan SQLite."""
     try:
-        conn = get_db()
-        conn.execute("SELECT 1").fetchone()
-        conn.close()
-        return jsonify({"status": "ok"})
+        result = (
+            supabase.table("station_map")
+            .select("station_id")
+            .limit(1)
+            .execute()
+        )
+        return jsonify({"status": "ok", "supabase": True, "rows_checked": len(result.data)})
     except Exception as exc:
-        return jsonify({"status": "error", "error": str(exc)}), 500
+        return jsonify({"status": "error", "supabase": False, "error": str(exc)}), 500
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -353,44 +400,120 @@ def settings():
 @app.get("/api/departments")
 def departments():
     include_inactive = request.args.get("include_inactive", "0") == "1"
-    conn = get_db()
-    where = "" if include_inactive else "WHERE is_active=1"
-    rows = conn.execute(f"""
-        SELECT id, cluster, department, status, priority, due_date,
-               issue, target_output, operator, last_update, floor, position_left, position_top, is_active
-        FROM departments
-        {where}
-        ORDER BY cluster, id
-    """).fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
+
+    query = supabase.table("station_map").select(
+        "station_id,cluster,display_name,floor,position_x,position_y,is_active"
+    )
+
+    if not include_inactive:
+        query = query.eq("is_active", True)
+
+    stations = query.order("station_id").execute().data
+
+    states_result = (
+        supabase.table("andon_current_state")
+        .select("station_id,machine,quality,material,last_update")
+        .execute()
+    )
+
+    states = {
+        row["station_id"]: row
+        for row in states_result.data
+    }
+
+    result = []
+
+    for station in stations:
+        station_id = station["station_id"]
+        state = states.get(station_id, {})
+
+        machine = int(state.get("machine", 0) or 0)
+        quality = int(state.get("quality", 0) or 0)
+        material = int(state.get("material", 0) or 0)
+
+        if machine:
+            status = "Machine Problem"
+            priority = "High"
+        elif material:
+            status = "Material Problem"
+            priority = "High"
+        elif quality:
+            status = "Quality Problem"
+            priority = "High"
+        else:
+            status = "Berjalan Normal"
+            priority = "Normal"
+
+        result.append({
+            "id": station_id,
+            "cluster": station["cluster"],
+            "department": station["display_name"],
+            "status": status,
+            "priority": priority,
+            "due_date": None,
+            "issue": None,
+            "target_output": 0,
+            "operator": None,
+            "last_update": state.get("last_update"),
+            "floor": station["floor"],
+            "position_left": station["position_x"],
+            "position_top": station["position_y"],
+            "is_active": station["is_active"],
+        })
+
+    return jsonify(result)
 
 
 @app.get("/api/history")
 def history():
     floor = request.args.get("floor", type=int)
-    conn = get_db()
-    if floor in (1, 2):
-        rows = conn.execute("""
-            SELECT e.id, d.cluster, d.department, d.floor, e.problem_type,
-                   e.start_time, e.end_time, e.duration_seconds
-            FROM andon_events e
-            JOIN departments d ON d.id = e.department_id
-            WHERE d.floor=?
-            ORDER BY e.id DESC
-            LIMIT 100
-        """, (floor,)).fetchall()
-    else:
-        rows = conn.execute("""
-            SELECT e.id, d.cluster, d.department, d.floor, e.problem_type,
-                   e.start_time, e.end_time, e.duration_seconds
-            FROM andon_events e
-            JOIN departments d ON d.id = e.department_id
-            ORDER BY e.id DESC
-            LIMIT 100
-        """).fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
+
+    history_result = (
+        supabase.table("status_history")
+        .select(
+            "id,station_id,problem_type,start_time,end_time,duration_seconds"
+        )
+        .order("id", desc=True)
+        .limit(100)
+        .execute()
+    )
+
+    history_rows = history_result.data
+
+    stations_result = (
+        supabase.table("station_map")
+        .select("station_id,cluster,display_name,floor")
+        .execute()
+    )
+
+    stations = {
+        row["station_id"]: row
+        for row in stations_result.data
+    }
+
+    result = []
+
+    for event in history_rows:
+        station = stations.get(event["station_id"])
+
+        if not station:
+            continue
+
+        if floor in (1, 2) and station["floor"] != floor:
+            continue
+
+        result.append({
+            "id": event["id"],
+            "cluster": station["cluster"],
+            "department": station["display_name"],
+            "floor": station["floor"],
+            "problem_type": event["problem_type"],
+            "start_time": event["start_time"],
+            "end_time": event["end_time"],
+            "duration_seconds": event["duration_seconds"],
+        })
+
+    return jsonify(result)
 
 
 @app.get("/api/lora/status")
@@ -406,15 +529,10 @@ def lora_command(department_id):
     if command not in allowed:
         return jsonify({"error": "Command harus MACHINE, MATERIAL, QUALITY, atau RESET"}), 400
 
-    # Update DB langsung agar dashboard responsif; lalu kirim command ke node.
-    if command == "MACHINE":
-        set_department_status(department_id, "Machine Problem")
-    elif command == "MATERIAL":
-        set_department_status(department_id, "Material Problem")
-    elif command == "QUALITY":
-        set_department_status(department_id, "Quality Problem")
-    else:
-        set_department_status(department_id, "Berjalan Normal")
+    # Update Supabase langsung agar dashboard responsif; lalu kirim command ke node.
+    ok = update_station_status_from_command(department_id, command)
+    if not ok:
+        return jsonify({"error": "Gagal memperbarui status station"}), 500
 
     sent, message = send_lora_command(department_id, command)
     return jsonify({"ok": True, "sent_to_lora": sent, "message": message})
@@ -423,125 +541,185 @@ def lora_command(department_id):
 @app.post("/api/departments")
 def create_department():
     payload = request.get_json(silent=True) or {}
+
     cluster = str(payload.get("cluster", "")).strip()
     department = str(payload.get("department", "")).strip()
-    floor = payload.get("floor", 1)
-    position_left = payload.get("position_left")
-    position_top = payload.get("position_top")
+
+    try:
+        floor = int(payload.get("floor", 1))
+        position_left = float(payload.get("position_left", 50))
+        position_top = float(payload.get("position_top", 50))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Data lantai atau posisi tidak valid"}), 400
 
     if not cluster or not department:
-        return jsonify({"error": "Cluster dan nama line wajib diisi"}), 400
-    try:
-        floor = int(floor)
-        if floor not in (1, 2):
-            raise ValueError
-        position_left = float(position_left) if position_left is not None else 50.0
-        position_top = float(position_top) if position_top is not None else 50.0
-        if not (0 <= position_left <= 100 and 0 <= position_top <= 100):
-            raise ValueError
-    except (TypeError, ValueError):
-        return jsonify({"error": "Lantai harus 1/2 dan posisi X/Y harus 0-100%"}), 400
+        return jsonify({
+            "error": "Cluster dan nama line wajib diisi"
+        }), 400
 
-    conn = get_db()
+    if floor not in (1, 2):
+        return jsonify({
+            "error": "Floor harus 1 atau 2"
+        }), 400
+
+    if not 0 <= position_left <= 100 or not 0 <= position_top <= 100:
+        return jsonify({
+            "error": "Posisi harus antara 0 sampai 100"
+        }), 400
+
     try:
-        cur = conn.execute("""
-            INSERT INTO departments
-            (cluster, department, status, priority, due_date, issue, target_output, operator, floor, position_left, position_top, is_active)
-            VALUES (?, ?, 'Berjalan Normal', 'Normal', date('now','localtime'), NULL, 0, NULL, ?, ?, ?, 1)
-        """, (cluster, department, floor, position_left, position_top))
-        conn.commit()
-        row = conn.execute("""
-            SELECT id, cluster, department, status, priority, due_date, issue,
-                   target_output, operator, last_update, floor, position_left, position_top, is_active
-            FROM departments WHERE id=?
-        """, (cur.lastrowid,)).fetchone()
-    except sqlite3.IntegrityError:
-        conn.rollback()
-        conn.close()
-        return jsonify({"error": "Nama line sudah digunakan. Gunakan nama yang berbeda."}), 409
-    conn.close()
-    return jsonify({"ok": True, "department": dict(row)}), 201
+        # Cari station ID terbesar
+        existing = (
+            supabase
+            .table("station_map")
+            .select("station_id")
+            .order("station_id", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        if existing.data:
+            station_id = int(existing.data[0]["station_id"]) + 1
+        else:
+            station_id = 1
+
+        # Tambahkan station baru
+        insert_data = {
+            "station_id": station_id,
+            "cluster": cluster,
+            "display_name": department,
+            "floor": floor,
+            "position_x": position_left,
+            "position_y": position_top,
+            "is_active": True,
+        }
+
+        result = (
+            supabase
+            .table("station_map")
+            .insert(insert_data)
+            .execute()
+        )
+
+        if not result.data:
+            return jsonify({
+                "error": "Gagal menambahkan line ke Supabase"
+            }), 500
+
+        # Buat status awal station
+        state_result = (
+            supabase
+            .table("andon_current_state")
+            .insert({
+                "station_id": station_id,
+                "machine": 0,
+                "quality": 0,
+                "material": 0,
+            })
+            .execute()
+        )
+
+        return jsonify({
+            "ok": True,
+            "station": result.data[0]
+        }), 201
+
+    except Exception as exc:
+        print("CREATE DEPARTMENT ERROR:", exc)
+
+        return jsonify({
+            "error": f"Gagal menambahkan line: {str(exc)}"
+        }), 500
 
 
 @app.put("/api/departments/<int:department_id>")
 def update_department(department_id):
     payload = request.get_json(silent=True) or {}
-    allowed = {
-        "status", "priority", "due_date", "issue", "target_output", "operator",
-        "cluster", "department", "floor", "position_left", "position_top", "is_active"
-    }
-    updates = {k: payload[k] for k in allowed if k in payload}
 
-    # Validasi field yang dipakai oleh editor Setting.
-    if "cluster" in updates:
-        updates["cluster"] = str(updates["cluster"]).strip()
-        if not updates["cluster"]:
-            return jsonify({"error": "Cluster wajib diisi"}), 400
-    if "department" in updates:
-        updates["department"] = str(updates["department"]).strip()
-        if not updates["department"]:
-            return jsonify({"error": "Nama line wajib diisi"}), 400
-    if "floor" in updates:
-        try:
-            updates["floor"] = int(updates["floor"])
-            if updates["floor"] not in (1, 2):
-                raise ValueError
-        except (TypeError, ValueError):
-            return jsonify({"error": "Lantai harus 1 atau 2"}), 400
-    for key in ("position_left", "position_top"):
-        if key in updates:
-            try:
-                updates[key] = float(updates[key])
-                if not 0 <= updates[key] <= 100:
-                    raise ValueError
-            except (TypeError, ValueError):
-                return jsonify({"error": "Posisi X/Y harus 0-100%"}), 400
-    if "is_active" in updates:
-        updates["is_active"] = 1 if bool(updates["is_active"]) else 0
+    update_data = {}
 
-    if not updates:
+    if "position_left" in payload:
+        update_data["position_x"] = float(payload["position_left"])
+
+    if "position_top" in payload:
+        update_data["position_y"] = float(payload["position_top"])
+
+    if "cluster" in payload:
+        update_data["cluster"] = str(payload["cluster"]).strip()
+
+    if "department" in payload:
+        update_data["display_name"] = str(payload["department"]).strip()
+
+    if "floor" in payload:
+        update_data["floor"] = int(payload["floor"])
+
+    if "is_active" in payload:
+        update_data["is_active"] = bool(payload["is_active"])
+
+    if not update_data:
         return jsonify({"error": "Tidak ada data yang diubah"}), 400
 
-    sets = ", ".join(f"{k}=?" for k in updates)
-    values = list(updates.values()) + [department_id]
+    result = (
+        supabase
+        .table("station_map")
+        .update(update_data)
+        .eq("station_id", department_id)
+        .execute()
+    )
 
-    conn = get_db()
-    try:
-        cur = conn.execute(
-            f"UPDATE departments SET {sets}, last_update=datetime('now','localtime') WHERE id=?",
-            values,
-        )
-        conn.commit()
-    except sqlite3.IntegrityError:
-        conn.rollback()
-        conn.close()
-        return jsonify({"error": "Nama line sudah digunakan. Gunakan nama yang berbeda."}), 409
-    conn.close()
+    if not result.data:
+        return jsonify({"error": "Station tidak ditemukan"}), 404
 
-    if cur.rowcount == 0:
-        return jsonify({"error": "Departemen tidak ditemukan"}), 404
-    return jsonify({"ok": True})
+    return jsonify({
+        "ok": True,
+        "station": result.data[0]
+    })
 
 
 @app.delete("/api/departments/<int:department_id>")
 def deactivate_department(department_id):
-    # Soft delete agar histori Andon lama tetap aman.
-    conn = get_db()
-    cur = conn.execute(
-        "UPDATE departments SET is_active=0, last_update=datetime('now','localtime') WHERE id=?",
-        (department_id,),
-    )
-    conn.commit()
-    conn.close()
-    if cur.rowcount == 0:
-        return jsonify({"error": "Departemen tidak ditemukan"}), 404
-    return jsonify({"ok": True})
+    try:
+        # Hapus state Andon station terlebih dahulu
+        supabase \
+            .table("andon_current_state") \
+            .delete() \
+            .eq("station_id", department_id) \
+            .execute()
 
+        # Hapus station dari station_map
+        result = (
+            supabase
+            .table("station_map")
+            .delete()
+            .eq("station_id", department_id)
+            .execute()
+        )
+
+        if not result.data:
+            return jsonify({
+                "error": "Line tidak ditemukan"
+            }), 404
+
+        return jsonify({
+            "ok": True,
+            "message": "Line berhasil dihapus"
+        })
+
+    except Exception as exc:
+        print("DELETE DEPARTMENT ERROR:", exc)
+
+        return jsonify({
+            "error": f"Gagal menghapus line: {str(exc)}"
+        }), 500
 
 if __name__ == "__main__":
+    if MQTT_ENABLED:
+        start_mqtt()
+
     if LORA_ENABLED and serial is not None:
         threading.Thread(target=serial_reader, daemon=True).start()
 
     port = int(os.getenv("PORT", "5000"))
     debug = env_bool("FLASK_DEBUG", False)
     app.run(host="0.0.0.0", port=port, debug=debug, use_reloader=False)
+

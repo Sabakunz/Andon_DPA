@@ -1,3 +1,6 @@
 Flask>=3.1,<4
+supabase
+python-dotenv
+paho-mqtt
 pyserial>=3.5,<4
 gunicorn>=23,<24
