@@ -391,12 +391,41 @@ def logout():
 
 @app.route("/")
 def index():
-    return render_template("index.html", mode="dashboard")
+    return render_template(
+        "index.html",
+        mode="dashboard",
+        supabase_url=SUPABASE_URL,
+        supabase_key=SUPABASE_KEY,
+    )
 
 @app.route("/settings")
 def settings():
-    return render_template("index.html", mode="settings")
+    return render_template(
+        "index.html",
+        mode="settings",
+        supabase_url=SUPABASE_URL,
+        supabase_key=SUPABASE_KEY,
+    )
 
+@app.get("/api/supabase-config")
+def supabase_config():
+    return jsonify({
+        "url": SUPABASE_URL,
+        "key": SUPABASE_KEY,
+    })
+
+def supabase_execute_with_retry(query, retries=3, delay=0.5):
+    last_error = None
+
+    for attempt in range(retries):
+        try:
+            return query.execute()
+        except Exception as exc:
+            last_error = exc
+            if attempt < retries - 1:
+                time.sleep(delay)
+
+    raise last_error
 
 @app.get("/api/departments")
 def departments():
@@ -409,12 +438,13 @@ def departments():
     if not include_inactive:
         query = query.eq("is_active", True)
 
-    stations = query.order("station_id").execute().data
+    stations = supabase_execute_with_retry(
+        query.order("station_id")
+    ).data
 
-    states_result = (
+    states_result = supabase_execute_with_retry(
         supabase.table("andon_current_state")
         .select("station_id,machine,quality,material,last_update")
-        .execute()
     )
 
     states = {
@@ -469,14 +499,13 @@ def departments():
 def history():
     floor = request.args.get("floor", type=int)
 
-    history_result = (
+    history_result = supabase_execute_with_retry(
         supabase.table("status_history")
         .select(
             "id,station_id,problem_type,start_time,end_time,duration_seconds"
         )
         .order("id", desc=True)
         .limit(100)
-        .execute()
     )
 
     history_rows = history_result.data

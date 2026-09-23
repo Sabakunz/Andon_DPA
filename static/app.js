@@ -358,3 +358,85 @@ window.openEditModal=openEditModal;window.toggleLine=toggleLine;window.deleteLin
 
 load();
 if(!IS_SETTINGS){loadHistory();setInterval(load,5000);setInterval(loadHistory,5000);}
+
+// ================= SUPABASE REALTIME =================
+function startRealtime() {
+  if (typeof supabase === 'undefined') {
+    console.warn('Supabase client belum tersedia di browser');
+    return;
+  }
+
+  const channel = supabase
+    .channel('andon-current-state')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'andon_current_state'
+      },
+      async (payload) => {
+        console.log('REALTIME ANDON:', payload);
+
+        // Ambil data terbaru dari API
+        await load();
+      }
+    )
+    .subscribe((status) => {
+      console.log('SUPABASE REALTIME:', status);
+    });
+
+  return channel;
+}
+
+// ================= SUPABASE REALTIME =================
+
+async function startSupabaseRealtime() {
+  try {
+    const configResponse = await fetch('/api/supabase-config', {
+      cache: 'no-store'
+    });
+
+    if (!configResponse.ok) {
+      throw new Error('Gagal mengambil konfigurasi Supabase');
+    }
+
+    const config = await configResponse.json();
+
+    if (!config.url || !config.key) {
+      throw new Error('Konfigurasi Supabase tidak lengkap');
+    }
+
+    const { createClient } = await import(
+      'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+    );
+
+    const realtimeClient = createClient(
+      config.url,
+      config.key
+    );
+
+    realtimeClient
+      .channel('andon-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'andon_current_state'
+        },
+        async (payload) => {
+          console.log('REALTIME ANDON:', payload);
+          await load();
+        }
+      )
+      .subscribe((status) => {
+        console.log('SUPABASE REALTIME:', status);
+      });
+
+  } catch (error) {
+    console.error('Realtime gagal:', error);
+  }
+}
+
+startSupabaseRealtime();
