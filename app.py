@@ -9,6 +9,7 @@ import time
 import os
 import hmac
 import json
+from datetime import datetime, timezone
 
 try:
     import serial
