@@ -19,7 +19,26 @@ const FLOOR_CONFIG = {
   1:{title:`LAYOUT LANTAI 1 — ${IS_SETTINGS?'SETTING':'LIVE ANDON'}`,image:'/static/denah.png',alt:'Denah lantai 1'},
   2:{title:`LAYOUT LANTAI 2 — ${IS_SETTINGS?'SETTING':'LIVE ANDON'}`,image:'/static/denah_lantai2.png',alt:'Denah lantai 2'}
 };
-const STATUS={NORMAL:'Berjalan Normal',MACHINE:'Machine Problem',MATERIAL:'Material Problem',QUALITY:'Quality Problem'};
+const STATUS={
+  NORMAL:'Berjalan Normal',
+  MACHINE:'Machine Problem',
+  MATERIAL:'Material Problem',
+  QUALITY:'Quality Problem',
+  OFFLINE:'Offline'
+};
+
+const OFFLINE_TIMEOUT_MS=60000;
+
+function isStationOffline(d){
+  if(!d.last_update)return true;
+  const last=new Date(d.last_update).getTime();
+  return !Number.isFinite(last) || Date.now()-last>OFFLINE_TIMEOUT_MS;
+}
+
+function effectiveStatus(d){
+  if(isStationOffline(d))return STATUS.OFFLINE;
+  return displayStatus(d.status);
+}
 let currentFloor=1, departments=[], draggedMarker=null, dirtyPositions=new Set();
 
 function updateClock(){
@@ -32,6 +51,7 @@ function updateClock(){
 setInterval(updateClock,1000); updateClock();
 
 function statusClass(status){
+  if(status===STATUS.OFFLINE)return'offline';
   if(status===STATUS.MACHINE||status==='Andon Call / Berhenti')return'danger';
   if(status===STATUS.MATERIAL||status==='Perhatian / Changeover')return'warning';
   if(status===STATUS.QUALITY)return'quality';
@@ -65,15 +85,17 @@ function renderBoard(){
     section.innerHTML=`<div class="cluster-title">${title}</div><div class="cards"></div>`;
     const cards=section.querySelector('.cards');
     items.forEach(d=>{
-      const cls=statusClass(d.status), card=document.createElement('article');
-      card.className=`card ${cls} ${cls!=='normal'?'status-pulse':''}`;
-      card.innerHTML=`<h3>${esc(d.department)}</h3>
-        <div class="card-status-row">
-          <span class="badge">${esc(displayStatus(d.status))}</span>
-          <button class="reset-line-btn" type="button" title="Reset ${esc(d.department)} menjadi normal" data-reset-id="${d.id}">↻ RESET</button>
-        </div>`;
-      card.querySelector('.reset-line-btn')?.addEventListener('click',()=>resetLine(d.id));
-      cards.appendChild(card);
+const status=effectiveStatus(d);
+const cls=statusClass(status);
+card=document.createElement('article');
+card.className=`card ${cls} ${cls!=='normal'?'status-pulse':''}`;
+card.innerHTML=`<h3>${esc(d.department)}</h3>
+  <div class="card-status-row">
+    <span class="badge">${esc(status)}</span>
+    <button class="reset-line-btn" type="button" title="Reset ${esc(d.department)} menjadi normal" data-reset-id="${d.id}">↻ RESET</button>
+  </div>`;
+card.querySelector('.reset-line-btn')?.addEventListener('click',()=>resetLine(d.id));
+cards.appendChild(card);
     });
     board.appendChild(section);
   });
