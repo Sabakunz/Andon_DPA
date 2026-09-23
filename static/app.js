@@ -88,7 +88,7 @@ function renderBoard(){
 const status=effectiveStatus(d);
 const cls=statusClass(status);
 card=document.createElement('article');
-card.className=`card ${cls} ${cls!=='normal'?'status-pulse':''}`;
+card.className=`card ${cls} ${['danger','warning','quality'].includes(cls)?'status-pulse':''}`;
 card.innerHTML=`<h3>${esc(d.department)}</h3>
   <div class="card-status-row">
     <span class="badge">${esc(status)}</span>
