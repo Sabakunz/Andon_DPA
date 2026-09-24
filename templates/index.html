@@ -91,8 +91,8 @@
     </div>
     <div class="table-wrap">
       <table class="settings-table">
-        <thead><tr><th>Lantai</th><th>Cluster</th><th>Nama Line</th><th>Status</th><th>Posisi</th><th>Aksi</th></tr></thead>
-        <tbody id="settingsLineBody"><tr><td colspan="6" class="history-empty">Memuat line...</td></tr></tbody>
+        <thead><tr><th>Lantai</th><th>Cluster</th><th>Station ID</th><th>Station Name</th><th>Nama Line</th><th>Status</th><th>Posisi</th><th>Aksi</th></tr></thead>
+        <tbody id="settingsLineBody"><tr><td colspan="8" class="history-empty">Memuat line...</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -127,8 +127,49 @@
       <form id="lineForm" class="line-form">
         <input id="lineId" type="hidden">
         <label><span>Lantai</span><select id="lineFloor" required><option value="1">Lantai 1</option><option value="2">Lantai 2</option></select></label>
-        <label><span>Cluster</span><input id="lineCluster" type="text" maxlength="40" placeholder="Contoh: A" required></label>
-        <label class="full"><span>Nama Line</span><input id="lineName" type="text" maxlength="100" placeholder="Contoh: Line Baru" required></label>
+<label>
+  <span>Cluster</span>
+  <input
+    id="lineCluster"
+    type="text"
+    maxlength="40"
+    placeholder="Contoh: A"
+    required
+  >
+</label>
+
+<label>
+  <span>Station ID</span>
+  <input
+    id="lineStationId"
+    type="number"
+    min="1"
+    placeholder="Contoh: 2"
+    required
+  >
+</label>
+
+<label>
+  <span>Station Name</span>
+  <input
+    id="lineStationName"
+    type="text"
+    maxlength="100"
+    placeholder="Contoh: LINE TANK HEADER"
+    required
+  >
+</label>
+
+<label class="full">
+  <span>Nama Line</span>
+  <input
+    id="lineName"
+    type="text"
+    maxlength="100"
+    placeholder="Contoh: Line Baru"
+    required
+  >
+</label>
         <label><span>Posisi X (%)</span><input id="lineLeft" type="number" min="0" max="100" step="0.5" value="50" required></label>
         <label><span>Posisi Y (%)</span><input id="lineTop" type="number" min="0" max="100" step="0.5" value="50" required></label>
         <div id="lineFormMessage" class="form-message full" aria-live="polite"></div>

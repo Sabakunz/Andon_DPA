@@ -477,6 +477,8 @@ def departments():
 
         result.append({
             "id": station_id,
+            "station_id": station_id,
+            "station_name": station["display_name"],
             "cluster": station["cluster"],
             "department": station["display_name"],
             "status": status,
@@ -574,17 +576,54 @@ def create_department():
 
     cluster = str(payload.get("cluster", "")).strip()
     department = str(payload.get("department", "")).strip()
+    station_name = str(
+        payload.get("station_name", "")
+    ).strip()
 
     try:
-        floor = int(payload.get("floor", 1))
-        position_left = float(payload.get("position_left", 50))
-        position_top = float(payload.get("position_top", 50))
-    except (TypeError, ValueError):
-        return jsonify({"error": "Data lantai atau posisi tidak valid"}), 400
+        station_id = int(
+            payload.get("station_id")
+        )
 
-    if not cluster or not department:
+        floor = int(
+            payload.get("floor", 1)
+        )
+
+        position_left = float(
+            payload.get("position_left", 50)
+        )
+
+        position_top = float(
+            payload.get("position_top", 50)
+        )
+
+    except (TypeError, ValueError):
         return jsonify({
-            "error": "Cluster dan nama line wajib diisi"
+            "error": "Station ID, lantai, atau posisi tidak valid"
+        }), 400
+
+    # ==========================================
+    # VALIDASI DATA
+    # ==========================================
+
+    if station_id <= 0:
+        return jsonify({
+            "error": "Station ID harus lebih besar dari 0"
+        }), 400
+
+    if not cluster:
+        return jsonify({
+            "error": "Cluster wajib diisi"
+        }), 400
+
+    if not department:
+        return jsonify({
+            "error": "Nama line wajib diisi"
+        }), 400
+
+    if not station_name:
+        return jsonify({
+            "error": "Station Name wajib diisi"
         }), 400
 
     if floor not in (1, 2):
@@ -592,28 +631,42 @@ def create_department():
             "error": "Floor harus 1 atau 2"
         }), 400
 
-    if not 0 <= position_left <= 100 or not 0 <= position_top <= 100:
+    if not 0 <= position_left <= 100:
         return jsonify({
-            "error": "Posisi harus antara 0 sampai 100"
+            "error": "Posisi X harus antara 0 sampai 100"
+        }), 400
+
+    if not 0 <= position_top <= 100:
+        return jsonify({
+            "error": "Posisi Y harus antara 0 sampai 100"
         }), 400
 
     try:
-        # Cari station ID terbesar
-        existing = (
+        # ==========================================
+        # CEK STATION ID SUDAH DIGUNAKAN ATAU BELUM
+        # ==========================================
+
+        duplicate = (
             supabase
             .table("station_map")
             .select("station_id")
-            .order("station_id", desc=True)
+            .eq("station_id", station_id)
             .limit(1)
             .execute()
         )
 
-        if existing.data:
-            station_id = int(existing.data[0]["station_id"]) + 1
-        else:
-            station_id = 1
+        if duplicate.data:
+            return jsonify({
+                "error": (
+                    f"Station ID {station_id} "
+                    "sudah digunakan"
+                )
+            }), 409
 
-        # Tambahkan station baru
+        # ==========================================
+        # INSERT STATION MAP
+        # ==========================================
+
         insert_data = {
             "station_id": station_id,
             "cluster": cluster,
@@ -633,32 +686,52 @@ def create_department():
 
         if not result.data:
             return jsonify({
-                "error": "Gagal menambahkan line ke Supabase"
+                "error": (
+                    "Gagal menambahkan line "
+                    "ke Supabase"
+                )
             }), 500
 
-        # Buat status awal station
-        state_result = (
-            supabase
-            .table("andon_current_state")
-            .insert({
-                "station_id": station_id,
-                "machine": 0,
-                "quality": 0,
-                "material": 0,
-            })
+        # ==========================================
+        # BUAT CURRENT STATE
+        # ==========================================
+
+        supabase \
+            .table("andon_current_state") \
+            .upsert(
+                {
+                    "station_id": station_id,
+                    "machine": 0,
+                    "quality": 0,
+                    "material": 0,
+                },
+                on_conflict="station_id"
+            ) \
             .execute()
-        )
+
+        # ==========================================
+        # RESPONSE
+        # ==========================================
 
         return jsonify({
             "ok": True,
-            "station": result.data[0]
+            "station": result.data[0],
+            "station_id": station_id,
+            "station_name": station_name,
+            "department": department,
         }), 201
 
     except Exception as exc:
-        print("CREATE DEPARTMENT ERROR:", exc)
+        print(
+            "CREATE DEPARTMENT ERROR:",
+            exc
+        )
 
         return jsonify({
-            "error": f"Gagal menambahkan line: {str(exc)}"
+            "error": (
+                "Gagal menambahkan line: "
+                f"{str(exc)}"
+            )
         }), 500
 
 
@@ -668,6 +741,53 @@ def update_department(department_id):
 
     update_data = {}
 
+    # -----------------------------
+    # DATA STATION
+    # -----------------------------
+    new_station_id = department_id
+
+    if "station_id" in payload:
+        try:
+            new_station_id = int(payload["station_id"])
+        except (TypeError, ValueError):
+            return jsonify({
+                "error": "STATION_ID harus berupa angka"
+            }), 400
+
+        if new_station_id <= 0:
+            return jsonify({
+                "error": "STATION_ID harus lebih besar dari 0"
+            }), 400
+
+        # Cek apakah ID baru sudah dipakai station lain
+        if new_station_id != department_id:
+            duplicate = (
+                supabase
+                .table("station_map")
+                .select("station_id")
+                .eq("station_id", new_station_id)
+                .limit(1)
+                .execute()
+            )
+
+            if duplicate.data:
+                return jsonify({
+                    "error": f"STATION_ID {new_station_id} sudah digunakan"
+                }), 409
+
+    if "station_name" in payload:
+        station_name = str(payload["station_name"]).strip()
+
+        if not station_name:
+            return jsonify({
+                "error": "STATION_NAME wajib diisi"
+            }), 400
+
+        update_data["display_name"] = station_name
+
+    # -----------------------------
+    # DATA LINE
+    # -----------------------------
     if "position_left" in payload:
         update_data["position_x"] = float(payload["position_left"])
 
@@ -677,33 +797,99 @@ def update_department(department_id):
     if "cluster" in payload:
         update_data["cluster"] = str(payload["cluster"]).strip()
 
+    # kompatibilitas dengan form lama
     if "department" in payload:
-        update_data["display_name"] = str(payload["department"]).strip()
+        update_data["display_name"] = str(
+            payload["department"]
+        ).strip()
 
     if "floor" in payload:
-        update_data["floor"] = int(payload["floor"])
+        floor = int(payload["floor"])
+
+        if floor not in (1, 2):
+            return jsonify({
+                "error": "Floor harus 1 atau 2"
+            }), 400
+
+        update_data["floor"] = floor
 
     if "is_active" in payload:
         update_data["is_active"] = bool(payload["is_active"])
 
-    if not update_data:
-        return jsonify({"error": "Tidak ada data yang diubah"}), 400
+    if not update_data and new_station_id == department_id:
+        return jsonify({
+            "error": "Tidak ada data yang diubah"
+        }), 400
 
-    result = (
-        supabase
-        .table("station_map")
-        .update(update_data)
-        .eq("station_id", department_id)
-        .execute()
-    )
+    try:
+        # -----------------------------
+        # UPDATE STATION MAP
+        # -----------------------------
+        if new_station_id != department_id:
 
-    if not result.data:
-        return jsonify({"error": "Station tidak ditemukan"}), 404
+            # pindahkan station_id
+            update_data["station_id"] = new_station_id
 
-    return jsonify({
-        "ok": True,
-        "station": result.data[0]
-    })
+        result = (
+            supabase
+            .table("station_map")
+            .update(update_data)
+            .eq("station_id", department_id)
+            .execute()
+        )
+
+        if not result.data:
+            return jsonify({
+                "error": "Station tidak ditemukan"
+            }), 404
+
+        # -----------------------------
+        # PINDAHKAN CURRENT STATE
+        # -----------------------------
+        if new_station_id != department_id:
+
+            state_result = (
+                supabase
+                .table("andon_current_state")
+                .select("*")
+                .eq("station_id", department_id)
+                .limit(1)
+                .execute()
+            )
+
+            if state_result.data:
+                old_state = state_result.data[0]
+
+                supabase \
+                    .table("andon_current_state") \
+                    .delete() \
+                    .eq("station_id", department_id) \
+                    .execute()
+
+                supabase \
+                    .table("andon_current_state") \
+                    .upsert({
+                        "station_id": new_station_id,
+                        "machine": int(old_state.get("machine", 0) or 0),
+                        "quality": int(old_state.get("quality", 0) or 0),
+                        "material": int(old_state.get("material", 0) or 0),
+                        "last_update": old_state.get("last_update")
+                    }, on_conflict="station_id") \
+                    .execute()
+
+        return jsonify({
+            "ok": True,
+            "station": result.data[0],
+            "station_id": new_station_id,
+            "station_name": result.data[0].get("display_name")
+        })
+
+    except Exception as exc:
+        print("UPDATE DEPARTMENT ERROR:", exc)
+
+        return jsonify({
+            "error": f"Gagal memperbarui station: {str(exc)}"
+        }), 500
 
 
 @app.delete("/api/departments/<int:department_id>")
