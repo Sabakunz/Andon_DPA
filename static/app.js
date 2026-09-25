@@ -797,20 +797,47 @@ function formatDuration(
   ].join(':');
 }
 
+function formatHistoryDate(value) {
+  if (!value) return '-';
+
+  const date = new Date(value);
+
+  if (!Number.isFinite(date.getTime())) {
+    return '-';
+  }
+
+  return date.toLocaleDateString('id-ID', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
+}
+
+function formatHistoryTime(value) {
+  if (!value) return 'AKTIF';
+
+  const date = new Date(value);
+
+  if (!Number.isFinite(date.getTime())) {
+    return '-';
+  }
+
+  return date.toLocaleTimeString('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+}
+
 function renderHistory(rows) {
-  const body =
-    document.getElementById(
-      'historyBody'
-    );
+  const body = document.getElementById('historyBody');
 
   if (!body) return;
 
   if (!rows.length) {
     body.innerHTML = `
       <tr>
-        <td
-          colspan="7"
-          class="history-empty">
+        <td colspan="7" class="history-empty">
           Belum ada histori Andon.
         </td>
       </tr>
@@ -821,37 +848,39 @@ function renderHistory(rows) {
 
   body.innerHTML = rows
     .map(row => {
-      const className =
-        problemClass(
-          row.problem_type
-        );
+      const className = problemClass(row.problem_type);
 
-      const start =
-        (row.start_time || '')
-          .split(' ');
+      const startDate = formatHistoryDate(
+        row.start_time
+      );
 
-      const end =
-        (row.end_time || '')
-          .split(' ');
+      const startTime = formatHistoryTime(
+        row.start_time
+      );
+
+      const endTime = row.end_time
+        ? formatHistoryTime(row.end_time)
+        : 'AKTIF';
+
+      const status = row.end_time
+        ? 'Selesai'
+        : 'Aktif';
 
       return `
         <tr>
-          <td>${esc(start[0] || '-')}</td>
+          <td>${esc(startDate)}</td>
 
-          <td>${esc(start[1] || '-')}</td>
+          <td>${esc(startTime)}</td>
 
           <td>${esc(row.department)}</td>
 
           <td>
-            <span
-              class="history-problem ${className}">
+            <span class="history-problem ${className}">
               ${esc(row.problem_type)}
             </span>
           </td>
 
-          <td>
-            ${esc(end[1] || 'AKTIF')}
-          </td>
+          <td>${esc(endTime)}</td>
 
           <td>
             ${formatDuration(
@@ -861,17 +890,12 @@ function renderHistory(rows) {
           </td>
 
           <td>
-            <span
-              class="history-state ${
-                row.end_time
-                  ? 'closed'
-                  : 'active'
-              }">
-              ${
-                row.end_time
-                  ? 'Selesai'
-                  : 'Aktif'
-              }
+            <span class="history-state ${
+              row.end_time
+                ? 'closed'
+                : 'active'
+            }">
+              ${status}
             </span>
           </td>
         </tr>
