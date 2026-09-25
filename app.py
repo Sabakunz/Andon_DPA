@@ -229,12 +229,15 @@ def is_logged_in():
 
 @app.before_request
 def require_login():
-    if request.endpoint in {"login", "health", "static"}:
+    if request.endpoint in {"login", "health", "static", "whatsapp_webhook"}:
         return None
+
     if is_logged_in():
         return None
+
     if request.path.startswith("/api/"):
         return jsonify({"error": "Login diperlukan"}), 401
+
     return redirect(url_for("login"))
 
 
@@ -360,9 +363,45 @@ def health():
             .limit(1)
             .execute()
         )
-        return jsonify({"status": "ok", "supabase": True, "rows_checked": len(result.data)})
+        return jsonify({
+            "status": "ok",
+            "supabase": True,
+            "rows_checked": len(result.data)
+        })
     except Exception as exc:
-        return jsonify({"status": "error", "supabase": False, "error": str(exc)}), 500
+        return jsonify({
+            "status": "error",
+            "supabase": False,
+            "error": str(exc)
+        }), 500
+
+
+WHATSAPP_VERIFY_TOKEN = os.getenv(
+    "WHATSAPP_VERIFY_TOKEN",
+    "andon-whatsapp-verify"
+)
+
+
+@app.route("/webhook/whatsapp", methods=["GET", "POST"])
+def whatsapp_webhook():
+    if request.method == "GET":
+        mode = request.args.get("hub.mode")
+        token = request.args.get("hub.verify_token")
+        challenge = request.args.get("hub.challenge")
+
+        if mode == "subscribe" and token == WHATSAPP_VERIFY_TOKEN:
+            return challenge, 200
+
+        return "Forbidden", 403
+
+    data = request.get_json(silent=True) or {}
+
+    print(
+        "WHATSAPP WEBHOOK:",
+        json.dumps(data, indent=2)
+    )
+
+    return jsonify({"ok": True}), 200
 
 
 @app.route("/login", methods=["GET", "POST"])
