@@ -409,19 +409,24 @@ function renderLayout() {
       const position = getPosition(department);
       const status = effectiveStatus(department);
       const className = statusClass(status);
+  const shouldPulse = [
+  'danger',
+  'warning',
+  'quality'
+].includes(className);
 
       const marker = document.createElement('div');
 
-      marker.className =
-        `marker ${className} ${
-          className !== 'normal'
-            ? 'status-pulse'
-            : ''
-        } ${
-          IS_SETTINGS
-            ? 'draggable-marker'
-            : ''
-        }`;
+marker.className =
+  `marker ${className} ${
+    shouldPulse
+      ? 'status-pulse'
+      : ''
+  } ${
+    IS_SETTINGS
+      ? 'draggable-marker'
+      : ''
+  }`;
 
       marker.style.left = `${position.left}%`;
       marker.style.top = `${position.top}%`;
@@ -508,6 +513,16 @@ function renderKpi() {
         statusClass(
           effectiveStatus(department)
         ) === 'quality'
+    ).length
+  );
+
+  setValue(
+    'offline',
+    visible.filter(
+      department =>
+        statusClass(
+          effectiveStatus(department)
+        ) === 'offline'
     ).length
   );
 }
@@ -965,13 +980,17 @@ function setFloor(floor) {
       config.title;
   }
 
-  if (image) {
-    image.src =
-      config.image;
+if (image) {
+  image.onload = () => {
+    fitMapToScreen();
+  };
 
-    image.alt =
-      config.alt;
-  }
+  image.src =
+    config.image;
+
+  image.alt =
+    config.alt;
+}
 
   renderKpi();
   renderBoard();
@@ -999,122 +1018,331 @@ document
   });
 
 /* =========================================================
-   MAP ZOOM
+   MAP ZOOM + PAN
    ========================================================= */
 
 let mapZoom = 1;
 
 const ZOOM_MIN = 0.6;
 const ZOOM_MAX = 2.5;
-const ZOOM_STEP = 0.1;
+const ZOOM_STEP = 0.06;
+const ZOOM_ANIMATION_MS = 100;
 
-function centerMapViewport() {
-  const map =
-    document.getElementById(
-      'layoutMap'
-    );
+let mapPanX = 0;
+let mapPanY = 0;
 
-  if (!map) return;
+let zoomAnimationFrame = null;
 
-  requestAnimationFrame(() => {
-    map.scrollLeft =
-      Math.max(
-        0,
-        (
-          map.scrollWidth -
-          map.clientWidth
-        ) / 2
-      );
+let smoothZoomTarget = 1;
+let smoothZoomFocusX = 0;
+let smoothZoomFocusY = 0;
+let smoothZoomWorldX = 0;
+let smoothZoomWorldY = 0;
 
-    map.scrollTop =
-      Math.max(
-        0,
-        (
-          map.scrollHeight -
-          map.clientHeight
-        ) / 2
-      );
-  });
+let isPanning = false;
+let panPointerId = null;
+let panStartX = 0;
+let panStartY = 0;
+let panOriginX = 0;
+let panOriginY = 0;
+
+function getMapElements() {
+  return {
+    map: document.getElementById('layoutMap'),
+    stage: document.getElementById('mapStage')
+  };
 }
 
-function applyMapZoom() {
-  const map =
-    document.getElementById(
-      'layoutMap'
-    );
-
-  const stage =
-    document.getElementById(
-      'mapStage'
-    );
-
-  const value =
-    document.getElementById(
-      'zoomResetBtn'
-    );
+function clampMapPosition() {
+  const { map, stage } = getMapElements();
 
   if (!map || !stage) return;
 
-  const zoom =
-    mapZoom.toFixed(2);
+  const contentWidth = stage.offsetWidth * mapZoom;
+  const contentHeight = stage.offsetHeight * mapZoom;
 
-  stage.style.setProperty(
-    '--map-zoom',
-    zoom
-  );
+  const viewportWidth = map.clientWidth;
+  const viewportHeight = map.clientHeight;
 
-  map.style.setProperty(
-    '--map-zoom',
-    zoom
-  );
+  if (contentWidth <= viewportWidth) {
+    const maxX = viewportWidth - contentWidth;
 
-  if (value) {
-    value.textContent =
-      `${Math.round(mapZoom * 100)}%`;
+    mapPanX = Math.max(
+      0,
+      Math.min(maxX, mapPanX)
+    );
+  } else {
+    const minX = viewportWidth - contentWidth;
+
+    mapPanX = Math.max(
+      minX,
+      Math.min(0, mapPanX)
+    );
   }
 
-  centerMapViewport();
+  if (contentHeight <= viewportHeight) {
+    const maxY = viewportHeight - contentHeight;
+
+    mapPanY = Math.max(
+      0,
+      Math.min(maxY, mapPanY)
+    );
+  } else {
+    const minY = viewportHeight - contentHeight;
+
+    mapPanY = Math.max(
+      minY,
+      Math.min(0, mapPanY)
+    );
+  }
 }
 
-function setMapZoom(value) {
-  mapZoom =
-    Math.min(
-      ZOOM_MAX,
-      Math.max(
-        ZOOM_MIN,
-        Math.round(value * 10) / 10
-      )
+function applyMapTransform() {
+  const { stage } = getMapElements();
+
+  if (!stage) return;
+
+  clampMapPosition();
+
+  stage.style.transform =
+    `translate3d(${mapPanX}px, ${mapPanY}px, 0) scale(${mapZoom})`;
+
+  const zoomValue =
+    document.getElementById('zoomResetBtn');
+
+  if (zoomValue) {
+    zoomValue.textContent =
+      `${Math.round(mapZoom * 100)}%`;
+  }
+}
+
+function animateZoomAt(
+  clientX,
+  clientY,
+  targetZoom
+) {
+  const { map } = getMapElements();
+
+  if (!map) return;
+
+  targetZoom = Math.max(
+    ZOOM_MIN,
+    Math.min(ZOOM_MAX, targetZoom)
+  );
+
+  const rect = map.getBoundingClientRect();
+
+  smoothZoomFocusX = clientX - rect.left;
+  smoothZoomFocusY = clientY - rect.top;
+
+  smoothZoomWorldX =
+    (smoothZoomFocusX - mapPanX) / mapZoom;
+
+  smoothZoomWorldY =
+    (smoothZoomFocusY - mapPanY) / mapZoom;
+
+  smoothZoomTarget = targetZoom;
+
+  if (!zoomAnimationFrame) {
+    zoomAnimationFrame =
+      requestAnimationFrame(smoothZoomStep);
+  }
+}
+
+function smoothZoomStep() {
+  const difference =
+    smoothZoomTarget - mapZoom;
+
+  if (Math.abs(difference) < 0.001) {
+    mapZoom = smoothZoomTarget;
+
+    mapPanX =
+      smoothZoomFocusX -
+      smoothZoomWorldX * mapZoom;
+
+    mapPanY =
+      smoothZoomFocusY -
+      smoothZoomWorldY * mapZoom;
+
+    applyMapTransform();
+
+    zoomAnimationFrame = null;
+    return;
+  }
+
+  // Kecepatan zoom yang halus
+  mapZoom += difference * 0.22;
+
+  mapPanX =
+    smoothZoomFocusX -
+    smoothZoomWorldX * mapZoom;
+
+  mapPanY =
+    smoothZoomFocusY -
+    smoothZoomWorldY * mapZoom;
+
+  applyMapTransform();
+
+  zoomAnimationFrame =
+    requestAnimationFrame(smoothZoomStep);
+}
+
+function zoomAtCenter(delta) {
+  const { map } = getMapElements();
+
+  if (!map) return;
+
+  const rect =
+    map.getBoundingClientRect();
+
+  animateZoomAt(
+    rect.left + rect.width / 2,
+    rect.top + rect.height / 2,
+    mapZoom + delta
+  );
+}
+
+function fitMapToScreen() {
+  const { map, stage } = getMapElements();
+
+  if (!map || !stage) return;
+
+  cancelAnimationFrame(zoomAnimationFrame);
+
+  const viewportWidth = map.clientWidth;
+  const viewportHeight = map.clientHeight;
+
+  const naturalWidth = stage.offsetWidth;
+  const naturalHeight = stage.offsetHeight;
+
+  if (!naturalWidth || !naturalHeight) {
+    return;
+  }
+
+  let fitZoom = Math.min(
+    viewportWidth / naturalWidth,
+    viewportHeight / naturalHeight
+  );
+
+  fitZoom = Math.max(
+    ZOOM_MIN,
+    Math.min(ZOOM_MAX, fitZoom)
+  );
+
+  mapZoom = fitZoom;
+
+  const contentWidth =
+    naturalWidth * mapZoom;
+
+  const contentHeight =
+    naturalHeight * mapZoom;
+
+  mapPanX =
+    (viewportWidth - contentWidth) / 2;
+
+  mapPanY =
+    (viewportHeight - contentHeight) / 2;
+
+  applyMapTransform();
+}
+
+function resetMapZoom() {
+  const { map, stage } = getMapElements();
+
+  if (!map || !stage) return;
+
+  cancelAnimationFrame(zoomAnimationFrame);
+
+  const viewportWidth = map.clientWidth;
+  const viewportHeight = map.clientHeight;
+
+  const contentWidth = stage.offsetWidth;
+  const contentHeight = stage.offsetHeight;
+
+  const targetZoom = 1;
+
+  const targetPanX =
+    (viewportWidth - contentWidth * targetZoom) / 2;
+
+  const targetPanY =
+    (viewportHeight - contentHeight * targetZoom) / 2;
+
+  const startZoom = mapZoom;
+  const startPanX = mapPanX;
+  const startPanY = mapPanY;
+
+  const startTime = performance.now();
+
+  function animate(now) {
+    const progress = Math.min(
+      1,
+      (now - startTime) / ZOOM_ANIMATION_MS
     );
 
-  applyMapZoom();
+    const eased =
+      1 - Math.pow(1 - progress, 3);
+
+    mapZoom =
+      startZoom +
+      (targetZoom - startZoom) * eased;
+
+    mapPanX =
+      startPanX +
+      (targetPanX - startPanX) * eased;
+
+    mapPanY =
+      startPanY +
+      (targetPanY - startPanY) * eased;
+
+    applyMapTransform();
+
+    if (progress < 1) {
+      zoomAnimationFrame =
+        requestAnimationFrame(animate);
+    } else {
+      zoomAnimationFrame = null;
+    }
+  }
+
+  zoomAnimationFrame =
+    requestAnimationFrame(animate);
 }
+
+/* =========================
+   ZOOM BUTTON
+   ========================= */
 
 document
   .getElementById('zoomInBtn')
   ?.addEventListener(
     'click',
-    () =>
-      setMapZoom(
-        mapZoom + ZOOM_STEP
-      )
+    () => zoomAtCenter(ZOOM_STEP)
   );
 
 document
   .getElementById('zoomOutBtn')
   ?.addEventListener(
     'click',
-    () =>
-      setMapZoom(
-        mapZoom - ZOOM_STEP
-      )
+    () => zoomAtCenter(-ZOOM_STEP)
   );
 
 document
   .getElementById('zoomResetBtn')
   ?.addEventListener(
     'click',
-    () => setMapZoom(1)
+    resetMapZoom
   );
+
+document
+  .getElementById('zoomFitBtn')
+  ?.addEventListener(
+    'click',
+    fitMapToScreen
+  );
+
+/* =========================
+   ZOOM DENGAN MOUSE WHEEL
+   ========================= */
 
 document
   .getElementById('layoutMap')
@@ -1123,24 +1351,147 @@ document
     event => {
       event.preventDefault();
 
-      setMapZoom(
-        mapZoom +
-          (
-            event.deltaY < 0
-              ? ZOOM_STEP
-              : -ZOOM_STEP
-          )
+      const map =
+        document.getElementById(
+          'layoutMap'
+        );
+
+      if (!map) return;
+
+      const delta =
+        event.deltaY < 0
+          ? ZOOM_STEP
+          : -ZOOM_STEP;
+
+      animateZoomAt(
+        event.clientX,
+        event.clientY,
+        mapZoom + delta
       );
     },
-    { passive: false }
+    {
+      passive: false
+    }
   );
+
+/* =========================
+   PAN / GESER DENAH
+   ========================= */
+
+function startMapPan(event) {
+  if (IS_SETTINGS) return;
+
+  if (event.button !== 0) return;
+
+  if (
+    event.target.closest('.zoom-controls') ||
+    event.target.closest('.marker')
+  ) {
+    return;
+  }
+
+  const map =
+    document.getElementById(
+      'layoutMap'
+    );
+
+  if (!map) return;
+
+  isPanning = true;
+  panPointerId = event.pointerId;
+
+  panStartX = event.clientX;
+  panStartY = event.clientY;
+
+  panOriginX = mapPanX;
+  panOriginY = mapPanY;
+
+  map.classList.add('is-panning');
+
+  map.setPointerCapture(
+    event.pointerId
+  );
+}
+
+function moveMapPan(event) {
+  if (
+    !isPanning ||
+    event.pointerId !== panPointerId
+  ) {
+    return;
+  }
+
+  mapPanX =
+    panOriginX +
+    (event.clientX - panStartX);
+
+  mapPanY =
+    panOriginY +
+    (event.clientY - panStartY);
+
+  applyMapTransform();
+}
+
+function endMapPan(event) {
+  if (
+    event.pointerId !== panPointerId
+  ) {
+    return;
+  }
+
+  const map =
+    document.getElementById(
+      'layoutMap'
+    );
+
+  isPanning = false;
+  panPointerId = null;
+
+  map?.classList.remove(
+    'is-panning'
+  );
+}
+
+document
+  .getElementById('layoutMap')
+  ?.addEventListener(
+    'pointerdown',
+    startMapPan
+  );
+
+document
+  .getElementById('layoutMap')
+  ?.addEventListener(
+    'pointermove',
+    moveMapPan
+  );
+
+document
+  .getElementById('layoutMap')
+  ?.addEventListener(
+    'pointerup',
+    endMapPan
+  );
+
+document
+  .getElementById('layoutMap')
+  ?.addEventListener(
+    'pointercancel',
+    endMapPan
+  );
+
+/* =========================
+   RESIZE
+   ========================= */
 
 window.addEventListener(
   'resize',
-  centerMapViewport
+  () => {
+    applyMapTransform();
+  }
 );
 
-applyMapZoom();
+applyMapTransform();
 
 /* =========================================================
    LOAD DATA
