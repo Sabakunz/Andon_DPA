@@ -268,25 +268,31 @@ def update_station_state(station_id, changes, source="MQTT"):
                 .execute()
             )
 
-    print(
-        f"[HISTORY END] Station {station_id} - "
-        f"{problem_type} - {duration_seconds}s"
-    )
+            print(
+                f"[HISTORY END] "
+                f"Station {station_id} - "
+                f"{problem_type} - "
+                f"{duration_seconds}s"
+            )
 
-    duration_text = "N/A"
+            duration_text = "N/A"
 
-    if duration_seconds is not None:
-        minutes = duration_seconds // 60
-        seconds = duration_seconds % 60
-        duration_text = f"{minutes:02d}:{seconds:02d}"
+            if duration_seconds is not None:
+                minutes = duration_seconds // 60
+                seconds = duration_seconds % 60
+                duration_text = f"{minutes:02d}:{seconds:02d}"
 
-    send_telegram_message(
-        f"✅ ANDON RECOVERY\n"
-        f"Station: {station_id}\n"
-        f"Problem: {problem_type}\n"
-        f"Status: SELESAI\n"
-        f"Durasi: {duration_text}"
-    )
+            # Untuk RESET dari web, recovery Telegram
+            # dikirim khusus oleh fungsi RESET agar
+            # problem type tidak salah.
+            if source != "Web RESET":
+                send_telegram_message(
+                    f"✅ ANDON RECOVERY\n"
+                    f"Station: {station_id}\n"
+                    f"Problem: {problem_type}\n"
+                    f"Status: SELESAI\n"
+                    f"Durasi: {duration_text}"
+                )
 
     print(
         f"{source} STATE -> Station {station_id} | "
@@ -450,41 +456,40 @@ def update_station_status_from_command(
     command = command.upper()
 
     # ========================================================
-    # RESET KHUSUS
+    # RESET DARI WEB
     # ========================================================
     if command == "RESET":
-        result = (
+
+        # Cari history yang masih aktif.
+        # Kita ambil yang paling baru karena itu adalah
+        # problem terakhir yang sedang aktif.
+        active_history_result = (
             supabase
-            .table("andon_current_state")
+            .table("status_history")
             .select(
-                "station_id,machine,quality,material"
+                "id,problem_type,start_time"
             )
-            .eq("station_id", station_id)
+            .eq(
+                "station_id",
+                station_id
+            )
+            .is_(
+                "end_time",
+                "null"
+            )
+            .order(
+                "id",
+                desc=True
+            )
             .limit(1)
             .execute()
         )
 
-        if not result.data:
-            print(
-                f"RESET GAGAL: Station "
-                f"{station_id} tidak ditemukan"
-            )
-            return False
-
-        current = result.data[0]
-
-        # Cari problem yang benar-benar sedang aktif
-        active_fields = []
-
-        for field in (
-            "machine",
-            "quality",
-            "material",
-        ):
-            if int(
-                current.get(field, 0) or 0
-            ) == 1:
-                active_fields.append(field)
+        active_history = (
+            active_history_result.data[0]
+            if active_history_result.data
+            else None
+        )
 
         # Reset semua status
         changes = {
@@ -499,13 +504,84 @@ def update_station_status_from_command(
             source="Web RESET",
         )
 
-        print(
-            f"WEB RESET -> Station {station_id} | "
-            f"Active problem sebelum reset: "
-            f"{active_fields}"
-        )
+        if not ok:
+            return False
 
-        return ok
+        # ====================================================
+        # KIRIM RECOVERY SESUAI HISTORY TERAKHIR
+        # ====================================================
+
+        if active_history:
+
+            reset_time = datetime.now(
+                timezone.utc
+            )
+
+            start_time = active_history.get(
+                "start_time"
+            )
+
+            duration_seconds = None
+
+            if start_time:
+                try:
+                    started = datetime.fromisoformat(
+                        start_time.replace(
+                            "Z",
+                            "+00:00"
+                        )
+                    )
+
+                    duration_seconds = max(
+                        0,
+                        int(
+                            (
+                                reset_time - started
+                            ).total_seconds()
+                        )
+                    )
+
+                except (
+                    ValueError,
+                    TypeError
+                ):
+                    duration_seconds = None
+
+            duration_text = "N/A"
+
+            if duration_seconds is not None:
+                minutes = duration_seconds // 60
+                seconds = duration_seconds % 60
+
+                duration_text = (
+                    f"{minutes:02d}:{seconds:02d}"
+                )
+
+            send_telegram_message(
+                f"✅ ANDON RECOVERY\n"
+                f"Station: {station_id}\n"
+                f"Problem: "
+                f"{active_history['problem_type']}\n"
+                f"Status: SELESAI\n"
+                f"Durasi: {duration_text}"
+            )
+
+            print(
+                f"[WEB RESET RECOVERY] "
+                f"Station {station_id} - "
+                f"{active_history['problem_type']} - "
+                f"{duration_text}"
+            )
+
+        else:
+
+            print(
+                f"WEB RESET: "
+                f"Station {station_id} "
+                f"tidak memiliki history aktif"
+            )
+
+        return True
 
     # ========================================================
     # COMMAND NORMAL
@@ -517,11 +593,13 @@ def update_station_status_from_command(
             "quality": 0,
             "material": 0,
         },
+
         "MATERIAL": {
             "machine": 0,
             "quality": 0,
             "material": 1,
         },
+
         "QUALITY": {
             "machine": 0,
             "quality": 1,
@@ -529,7 +607,9 @@ def update_station_status_from_command(
         },
     }
 
-    changes = mapping.get(command)
+    changes = mapping.get(
+        command
+    )
 
     if changes is None:
         return False
