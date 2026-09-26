@@ -269,6 +269,26 @@ def update_station_state(station_id, changes, source="MQTT"):
             )
 
     print(
+        f"[HISTORY END] Station {station_id} - "
+        f"{problem_type} - {duration_seconds}s"
+    )
+
+    duration_text = "N/A"
+
+    if duration_seconds is not None:
+        minutes = duration_seconds // 60
+        seconds = duration_seconds % 60
+        duration_text = f"{minutes:02d}:{seconds:02d}"
+
+    send_telegram_message(
+        f"✅ ANDON RECOVERY\n"
+        f"Station: {station_id}\n"
+        f"Problem: {problem_type}\n"
+        f"Status: SELESAI\n"
+        f"Durasi: {duration_text}"
+    )
+
+    print(
         f"{source} STATE -> Station {station_id} | "
         f"Machine={next_state['machine']} | "
         f"Quality={next_state['quality']} | "
