@@ -447,6 +447,70 @@ def update_station_status_from_command(
     station_id,
     command,
 ):
+    command = command.upper()
+
+    # ========================================================
+    # RESET KHUSUS
+    # ========================================================
+    if command == "RESET":
+        result = (
+            supabase
+            .table("andon_current_state")
+            .select(
+                "station_id,machine,quality,material"
+            )
+            .eq("station_id", station_id)
+            .limit(1)
+            .execute()
+        )
+
+        if not result.data:
+            print(
+                f"RESET GAGAL: Station "
+                f"{station_id} tidak ditemukan"
+            )
+            return False
+
+        current = result.data[0]
+
+        # Cari problem yang benar-benar sedang aktif
+        active_fields = []
+
+        for field in (
+            "machine",
+            "quality",
+            "material",
+        ):
+            if int(
+                current.get(field, 0) or 0
+            ) == 1:
+                active_fields.append(field)
+
+        # Reset semua status
+        changes = {
+            "machine": 0,
+            "quality": 0,
+            "material": 0,
+        }
+
+        ok = update_station_state(
+            station_id,
+            changes,
+            source="Web RESET",
+        )
+
+        print(
+            f"WEB RESET -> Station {station_id} | "
+            f"Active problem sebelum reset: "
+            f"{active_fields}"
+        )
+
+        return ok
+
+    # ========================================================
+    # COMMAND NORMAL
+    # ========================================================
+
     mapping = {
         "MACHINE": {
             "machine": 1,
@@ -454,25 +518,18 @@ def update_station_status_from_command(
             "material": 0,
         },
         "MATERIAL": {
-            "material": 1,
             "machine": 0,
             "quality": 0,
+            "material": 1,
         },
         "QUALITY": {
+            "machine": 0,
             "quality": 1,
-            "machine": 0,
-            "material": 0,
-        },
-        "RESET": {
-            "machine": 0,
-            "quality": 0,
             "material": 0,
         },
     }
 
-    changes = mapping.get(
-        command.upper()
-    )
+    changes = mapping.get(command)
 
     if changes is None:
         return False
