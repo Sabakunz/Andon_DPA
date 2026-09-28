@@ -9,7 +9,8 @@ import time
 import os
 import hmac
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
@@ -114,6 +115,7 @@ def update_station_state(station_id, changes, source="MQTT"):
     station_id = int(station_id)
 
     allowed = {"machine", "quality", "material"}
+
     changes = {
         key: value
         for key, value in changes.items()
@@ -159,6 +161,7 @@ def update_station_state(station_id, changes, source="MQTT"):
 
     next_state.update(normalized)
 
+    # Waktu database menggunakan UTC.
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
 
@@ -186,6 +189,7 @@ def update_station_state(station_id, changes, source="MQTT"):
         if old_value == new_value:
             continue
 
+        # Cari history yang masih aktif untuk problem tersebut.
         active_result = (
             supabase
             .table("status_history")
@@ -204,8 +208,11 @@ def update_station_state(station_id, changes, source="MQTT"):
             else None
         )
 
-        # Masalah aktif: 0 -> 1
+        # ========================================================
+        # MASALAH AKTIF: 0 -> 1
+        # ========================================================
         if new_value == 1 and old_value == 0:
+
             (
                 supabase
                 .table("status_history")
@@ -221,19 +228,28 @@ def update_station_state(station_id, changes, source="MQTT"):
                 .execute()
             )
 
+            # Waktu tampil Telegram menggunakan WIB.
+            start_time_display = datetime.now(
+                timezone(timedelta(hours=7))
+            ).strftime("%H:%M:%S")
+
             send_telegram_message(
                 f"🚨 ANDON ALERT\n"
                 f"Station: {station_id}\n"
                 f"Problem: {problem_type}\n"
-                f"Status: AKTIF"
+                f"Status: AKTIF\n"
+                f"Jam Mulai: {start_time_display} WIB"
             )
 
-        # Masalah selesai: 1 -> 0
+        # ========================================================
+        # MASALAH SELESAI: 1 -> 0
+        # ========================================================
         elif (
             new_value == 0
             and old_value == 1
             and active
         ):
+
             start_time = active.get("start_time")
             duration_seconds = None
 
@@ -255,6 +271,7 @@ def update_station_state(station_id, changes, source="MQTT"):
                 except (ValueError, TypeError):
                     duration_seconds = None
 
+            # Tutup history.
             (
                 supabase
                 .table("status_history")
@@ -282,15 +299,20 @@ def update_station_state(station_id, changes, source="MQTT"):
                 seconds = duration_seconds % 60
                 duration_text = f"{minutes:02d}:{seconds:02d}"
 
-            # Untuk RESET dari web, recovery Telegram
-            # dikirim khusus oleh fungsi RESET agar
-            # problem type tidak salah.
+            # RESET dari web akan mengirim recovery
+            # secara khusus di fungsi RESET.
             if source != "Web RESET":
+
+                finish_time = datetime.now(
+                    timezone(timedelta(hours=7))
+                ).strftime("%H:%M:%S")
+
                 send_telegram_message(
                     f"✅ ANDON RECOVERY\n"
                     f"Station: {station_id}\n"
                     f"Problem: {problem_type}\n"
                     f"Status: SELESAI\n"
+                    f"Jam Selesai: {finish_time} WIB\n"
                     f"Durasi: {duration_text}"
                 )
 
@@ -461,8 +483,8 @@ def update_station_status_from_command(
     if command == "RESET":
 
         # Cari history yang masih aktif.
-        # Kita ambil yang paling baru karena itu adalah
-        # problem terakhir yang sedang aktif.
+        # Ambil yang paling baru karena itu problem terakhir
+        # yang sedang aktif.
         active_history_result = (
             supabase
             .table("status_history")
@@ -491,7 +513,7 @@ def update_station_status_from_command(
             else None
         )
 
-        # Reset semua status
+        # Reset semua status.
         changes = {
             "machine": 0,
             "quality": 0,
@@ -508,7 +530,7 @@ def update_station_status_from_command(
             return False
 
         # ====================================================
-        # KIRIM RECOVERY SESUAI HISTORY TERAKHIR
+        # KIRIM RECOVERY KHUSUS RESET
         # ====================================================
 
         if active_history:
@@ -557,12 +579,18 @@ def update_station_status_from_command(
                     f"{minutes:02d}:{seconds:02d}"
                 )
 
+            # Jam selesai RESET dalam WIB.
+            finish_time = datetime.now(
+                timezone(timedelta(hours=7))
+            ).strftime("%H:%M:%S")
+
             send_telegram_message(
                 f"✅ ANDON RECOVERY\n"
                 f"Station: {station_id}\n"
                 f"Problem: "
                 f"{active_history['problem_type']}\n"
                 f"Status: SELESAI\n"
+                f"Jam Selesai: {finish_time} WIB\n"
                 f"Durasi: {duration_text}"
             )
 
@@ -949,6 +977,23 @@ def logout():
         url_for("login")
     )
 
+@app.route("/history")
+def history_page():
+    return render_template(
+        "index.html",
+        mode="history",
+        supabase_url=SUPABASE_URL,
+        supabase_key=SUPABASE_KEY,
+    )
+
+@app.route("/report")
+def report_page():
+    return render_template(
+        "index.html",
+        mode="report",
+        supabase_url=SUPABASE_URL,
+        supabase_key=SUPABASE_KEY,
+    )
 
 @app.route("/")
 def index():

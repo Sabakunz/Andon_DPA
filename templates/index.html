@@ -11,29 +11,133 @@
 
 <body data-mode="{{ mode }}">
 
+<button
+  id="sidebarToggle"
+  class="sidebar-toggle"
+  type="button"
+  aria-label="Buka atau tutup menu"
+>
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 7h16"></path>
+    <path d="M4 12h16"></path>
+    <path d="M4 17h16"></path>
+  </svg>
+</button>
+
+<aside id="sideMenu" class="side-menu">
+
+  <div class="side-brand">
+    <div class="side-brand-mark">DP</div>
+
+    <div>
+      <div class="side-brand-title">ANDON BOARD</div>
+      <div class="side-brand-sub">DHARMA PRECISION PARTS</div>
+    </div>
+  </div>
+
+  <div class="side-section-title">
+    Monitoring
+  </div>
+
+<nav class="side-nav">
+
+  <a href="/" class="side-nav-item active">
+    <span class="side-nav-icon">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="4" width="6" height="6" rx="1"></rect>
+        <rect x="14" y="4" width="6" height="6" rx="1"></rect>
+        <rect x="4" y="14" width="6" height="6" rx="1"></rect>
+        <rect x="14" y="14" width="6" height="6" rx="1"></rect>
+      </svg>
+    </span>
+    <span>Dashboard</span>
+  </a>
+
+  <a href="/history" class="side-nav-item">
+    <span class="side-nav-icon">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 12a8 8 0 1 0 2.3-5.6"></path>
+        <path d="M4 5v5h5"></path>
+        <path d="M12 8v4l3 2"></path>
+      </svg>
+    </span>
+    <span>Histori</span>
+  </a>
+
+  <a href="/report" class="side-nav-item">
+    <span class="side-nav-icon">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M7 3h8l4 4v14H7z"></path>
+        <path d="M15 3v5h4"></path>
+        <path d="M10 12h6"></path>
+        <path d="M10 16h6"></path>
+      </svg>
+    </span>
+    <span>Report</span>
+  </a>
+
+</nav>
+
+  <div class="side-section-title">
+    Sistem
+  </div>
+
+<nav class="side-nav">
+
+  <a href="/settings" class="side-nav-item">
+    <span class="side-nav-icon">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14.3 3h-4.6l-.3 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2l.3 2.7h4.6l.3-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"></path>
+      </svg>
+    </span>
+    <span>Setting</span>
+  </a>
+
+  <a href="/logout" class="side-nav-item">
+    <span class="side-nav-icon">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9 5H5v14h4"></path>
+        <path d="M13 8l4 4-4 4"></path>
+        <path d="M17 12H8"></path>
+      </svg>
+    </span>
+    <span>Logout</span>
+  </a>
+
+</nav>
+
+  <div class="side-footer">
+    <div class="side-login">
+      <span class="side-login-label">Login sebagai</span>
+      <span class="side-login-user">{{ session.get("username", "user") }}</span>
+    </div>
+
+    <div id="dbStatus">Database: menghubungkan...</div>
+  </div>
+
+</aside>
+
 <header class="topbar">
 
   <div>
     <div class="company">
       PT. DHARMA PRECISION PARTS
     </div>
-
-    <h1>
-      ANDON BOARD —
-      {% if mode == 'settings' %}
-        SETTING
-      {% else %}
-        MONITORING MAINTENANCE
-      {% endif %}
-    </h1>
+<h1>
+  {% if mode == 'dashboard' %}
+    Monitoring Maintenance
+  {% elif mode == 'history' %}
+    History
+  {% elif mode == 'report' %}
+    Report & Analytics
+  {% elif mode == 'settings' %}
+    Setting
+  {% endif %}
+</h1>
   </div>
 
   <div class="top-actions">
-
-    <div class="login-user">
-      LOGIN: {{ session.get("username", "user") }}
-      <a href="/logout">LOGOUT</a>
-    </div>
 
     {% if mode == 'settings' %}
 
@@ -65,31 +169,9 @@
 
 </header>
 
-
 <main>
 
-  <!-- =====================================================
-       MODE NAVIGATION
-       ===================================================== -->
-
-  <nav class="mode-nav">
-
-    <a
-      class="{% if mode == 'dashboard' %}active{% endif %}"
-      href="/"
-    >
-      DASHBOARD
-    </a>
-
-    <a
-      class="{% if mode == 'settings' %}active{% endif %}"
-      href="/settings"
-    >
-      ⚙ SETTING
-    </a>
-
-  </nav>
-
+{% if mode == 'dashboard' or mode == 'settings' %}
 
   <!-- =====================================================
        FLOOR
@@ -125,41 +207,47 @@
 
   {% if mode == 'dashboard' %}
 
-  <section class="kpis">
+<section class="kpi-grid">
 
-<div class="kpi">
-  <span>Total Line</span>
-  <b id="total">0</b>
-</div>
+  <div class="kpi-card">
+    <div class="kpi-label">TOTAL LINE</div>
+    <div class="kpi-value" id="total">0</div>
+    <div class="kpi-sub">Total line terdaftar</div>
+  </div>
 
-<div class="kpi offline">
-  <span>Offline</span>
-  <b id="offline">0</b>
-</div>
+  <div class="kpi-card kpi-card--normal">
+    <div class="kpi-label">NORMAL</div>
+    <div class="kpi-value" id="normal">0</div>
+    <div class="kpi-sub">Berjalan normal</div>
+  </div>
 
-    <div class="kpi normal">
-      <span>Normal</span>
-      <b id="normal">0</b>
-    </div>
+  <div class="kpi-card kpi-card--machine">
+    <div class="kpi-label">MACHINE</div>
+    <div class="kpi-value" id="machine">0</div>
+    <div class="kpi-sub">Machine problem</div>
+  </div>
 
-    <div class="kpi machine">
-      <span>Machine</span>
-      <b id="machine">0</b>
-    </div>
+  <div class="kpi-card kpi-card--material">
+    <div class="kpi-label">MATERIAL</div>
+    <div class="kpi-value" id="material">0</div>
+    <div class="kpi-sub">Material problem</div>
+  </div>
 
-    <div class="kpi material">
-      <span>Material</span>
-      <b id="material">0</b>
-    </div>
+  <div class="kpi-card kpi-card--quality">
+    <div class="kpi-label">QUALITY</div>
+    <div class="kpi-value" id="quality">0</div>
+    <div class="kpi-sub">Quality problem</div>
+  </div>
 
-    <div class="kpi quality">
-      <span>Quality</span>
-      <b id="quality">0</b>
-    </div>
+  <div class="kpi-card kpi-card--offline">
+    <div class="kpi-label">OFFLINE</div>
+    <div class="kpi-value" id="offline">0</div>
+    <div class="kpi-sub">Tidak terhubung</div>
+  </div>
 
-  </section>
+</section>
 
-  {% endif %}
+{% endif %}
 
 
   <!-- =====================================================
@@ -218,7 +306,7 @@
           class="primary-btn"
           type="button"
         >
-          💾 SIMPAN POSISI
+          SIMPAN POSISI
         </button>
 
         {% endif %}
@@ -331,6 +419,7 @@
 
   </section>
 
+{% endif %}
 
   <!-- =====================================================
        SETTINGS
@@ -412,86 +501,318 @@
   </section>
 
 
-  <!-- =====================================================
-       DASHBOARD
-       ===================================================== -->
+<!-- =====================================================
+     DASHBOARD
+     ===================================================== -->
 
-  {% else %}
+{% elif mode == 'dashboard' %}
 
-  <section class="board-section">
+<section class="board-section">
+  <div id="board"></div>
+</section>
 
-    <div id="board"></div>
+{% elif mode == 'history' %}
 
-  </section>
+<!-- =====================================================
+     HISTORY
+     ===================================================== -->
 
+<section id="history" class="history-panel panel">
 
-  <!-- =====================================================
-       HISTORY
-       ===================================================== -->
+  <div class="panel-head">
 
-  <section class="history-panel panel">
+    <div>
 
-    <div class="panel-head">
+      <div class="panel-title">
+        HISTORY ANDON
+      </div>
 
-      <div>
-
-        <div class="panel-title">
-          HISTORY ANDON
-        </div>
-
-        <div class="panel-subtitle">
-
-          Riwayat masalah yang diterima sistem.
-          Data diperbarui otomatis setiap 5 detik.
-
-        </div>
-
+      <div class="panel-subtitle">
+        Riwayat masalah yang diterima sistem.
+        Data diperbarui otomatis setiap 5 detik.
       </div>
 
     </div>
 
+  </div>
 
-    <div class="history-table-wrap">
+  <div class="page-floor-tabs" id="historyFloorTabs">
 
-      <table class="history-table">
+    <button
+      type="button"
+      class="page-floor-tab active"
+      data-floor=""
+    >
+      SEMUA LANTAI
+    </button>
 
-        <thead>
+    <button
+      type="button"
+      class="page-floor-tab"
+      data-floor="1"
+    >
+      LANTAI 1
+    </button>
 
-          <tr>
-            <th>Tanggal</th>
-            <th>Jam Mulai</th>
-            <th>Line</th>
-            <th>Problem</th>
-            <th>Jam Selesai</th>
-            <th>Durasi</th>
-            <th>Status</th>
-          </tr>
+    <button
+      type="button"
+      class="page-floor-tab"
+      data-floor="2"
+    >
+      LANTAI 2
+    </button>
 
-        </thead>
+  </div>
 
 
-        <tbody id="historyBody">
+  <div class="history-filters">
 
-          <tr>
+    <div class="history-filter-group">
+      <label>TANGGAL</label>
 
-            <td
-              colspan="7"
-              class="history-empty"
-            >
-              Memuat histori Andon...
-            </td>
+      <input
+        type="date"
+        id="historyDate"
+      >
+    </div>
 
-          </tr>
 
-        </tbody>
+    <div class="history-filter-group">
+      <label>LINE</label>
 
-      </table>
+      <select id="historyLine">
+        <option value="">Semua Line</option>
+      </select>
+    </div>
+
+
+    <div class="history-filter-group">
+      <label>PROBLEM</label>
+
+      <select id="historyProblem">
+
+        <option value="">
+          Semua Problem
+        </option>
+
+        <option value="Machine">
+          Machine
+        </option>
+
+        <option value="Material">
+          Material
+        </option>
+
+        <option value="Quality">
+          Quality
+        </option>
+
+      </select>
 
     </div>
 
-  </section>
 
-  {% endif %}
+    <button
+      type="button"
+      id="historyReset"
+      class="secondary-btn"
+    >
+      RESET FILTER
+    </button>
+
+  </div>
+
+
+  <div
+    id="historySummary"
+    class="history-summary"
+  ></div>
+
+
+  <div class="history-table-wrap">
+
+    <table class="history-table">
+
+      <thead>
+
+        <tr>
+          <th>Tanggal</th>
+          <th>Jam Mulai</th>
+          <th>Line</th>
+          <th>Problem</th>
+          <th>Jam Selesai</th>
+          <th>Durasi</th>
+          <th>Status</th>
+        </tr>
+
+      </thead>
+
+
+      <tbody id="historyBody">
+
+        <tr>
+
+          <td
+            colspan="7"
+            class="history-empty"
+          >
+            Memuat histori Andon...
+          </td>
+
+        </tr>
+
+      </tbody>
+
+    </table>
+
+  </div>
+
+</section>
+
+
+{% elif mode == 'report' %}
+
+<!-- =====================================================
+     REPORT & ANALYTICS
+     ===================================================== -->
+
+<section id="report" class="report-panel panel">
+
+  <div class="panel-head">
+
+    <div>
+
+      <div class="panel-title">
+        REPORT & ANALYTICS
+      </div>
+
+    </div>
+
+  </div>
+
+  <div class="page-floor-tabs" id="reportFloorTabs">
+
+    <button
+      type="button"
+      class="page-floor-tab active"
+      data-floor=""
+    >
+      SEMUA LANTAI
+    </button>
+
+    <button
+      type="button"
+      class="page-floor-tab"
+      data-floor="1"
+    >
+      LANTAI 1
+    </button>
+
+    <button
+      type="button"
+      class="page-floor-tab"
+      data-floor="2"
+    >
+      LANTAI 2
+    </button>
+
+  </div>
+
+
+  <!-- KPI ANALYTICS -->
+
+  <div
+    id="dashboardAnalyticsKpis"
+    class="dashboard-analytics-kpis"
+  ></div>
+
+
+  <!-- TREND + DISTRIBUSI -->
+
+  <div class="dashboard-analytics-grid">
+
+    <div class="dashboard-analytics-card">
+
+      <div class="dashboard-analytics-card-head">
+        <div>
+          <h3>Tren Kejadian 7 Hari Terakhir</h3>
+        </div>
+      </div>
+
+      <div
+        id="dashboardTrend"
+        class="dashboard-trend"
+      ></div>
+
+    </div>
+
+
+    <div class="dashboard-analytics-card">
+
+      <div class="dashboard-analytics-card-head">
+        <div>
+          <h3>Distribusi Kategori</h3>
+        </div>
+      </div>
+
+      <div
+        id="dashboardCategory"
+        class="dashboard-category"
+      ></div>
+
+    </div>
+
+  </div>
+
+
+  <!-- KEJADIAN PER CLUSTER -->
+
+  <div class="dashboard-analytics-card dashboard-cluster-card">
+
+    <div class="dashboard-analytics-card-head">
+
+      <div>
+        <h3>Kejadian per Cluster</h3>
+      </div>
+
+      <div
+        id="dashboardClusterLegend"
+        class="dashboard-analytics-legend"
+      ></div>
+
+    </div>
+
+    <div
+      id="dashboardClusters"
+      class="dashboard-clusters"
+    ></div>
+
+  </div>
+
+
+  <!-- LINE PALING SERING TERPICU -->
+
+  <div class="dashboard-analytics-card">
+
+    <div class="dashboard-analytics-card-head">
+
+      <div>
+        <h3>Line Paling Sering Terpicu</h3>
+      </div>
+
+    </div>
+
+    <div
+      id="dashboardTopLines"
+      class="dashboard-top-lines"
+    ></div>
+
+  </div>
+
+</section>
+
+
+{% endif %}
 
 
   <!-- =====================================================
@@ -736,11 +1057,6 @@
 
   </span>
 
-
-  <span id="dbStatus">
-    Database: menghubungkan...
-  </span>
-
 </footer>
 
 
@@ -763,6 +1079,212 @@
 <!-- APP -->
 
 <script src="/static/app.js"></script>
+
+<script>
+  /* Tampilan saja: beri atribut data-state pada #dbStatus
+     supaya titik berubah warna. Tidak mengubah teks/logika. */
+  (function () {
+    var el = document.getElementById('dbStatus');
+    if (!el) return;
+
+    function sync() {
+      var t = (el.textContent || '').toLowerCase();
+      var s = 'pending';
+
+      if (t.indexOf('gagal') > -1) s = 'error';
+      else if (t.indexOf('menghubungkan') > -1) s = 'pending';
+      else if (t.indexOf('terhubung') > -1 || t.indexOf('tersimpan') > -1) s = 'ok';
+
+      el.setAttribute('data-state', s);
+    }
+
+    sync();
+    new MutationObserver(sync).observe(el, {
+      childList: true,
+      characterData: true,
+      subtree: true
+    });
+  })();
+</script>
+
+<script>
+  /* Tampilan saja: tutup sidebar saat klik di luar atau tekan Esc.
+     Tidak mengubah logika app.js. */
+  (function () {
+    var menu = document.getElementById('sideMenu');
+    var toggle = document.getElementById('sidebarToggle');
+    if (!menu) return;
+
+    document.addEventListener('click', function (e) {
+      if (!menu.classList.contains('is-open')) return;
+      if (menu.contains(e.target)) return;
+      if (toggle && toggle.contains(e.target)) return;
+
+      menu.classList.remove('is-open');
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') menu.classList.remove('is-open');
+    });
+  })();
+</script>
+
+<script>
+  /* Tampilan saja (Report): tooltip grafik tren 7 hari.
+     Membaca SVG yang dibuat app.js, tidak mengubah logikanya. */
+  (function () {
+    var box = document.getElementById('dashboardTrend');
+    if (!box) return;
+
+    var tip = document.createElement('div');
+    tip.className = 'ad-tip';
+    tip.setAttribute('role', 'tooltip');
+
+    var guide = document.createElement('div');
+    guide.className = 'ad-tip-guide';
+
+    document.body.appendChild(guide);
+    document.body.appendChild(tip);
+
+    var hot = null;
+
+    function el(tag, cls, text) {
+      var n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text != null) n.textContent = text;
+      return n;
+    }
+
+    function clearHot() {
+      if (hot) {
+        hot.classList.remove('is-hover');
+        hot = null;
+      }
+    }
+
+    function hide() {
+      tip.classList.remove('is-visible');
+      guide.style.opacity = '0';
+      clearHot();
+    }
+
+    function metrics(svg) {
+      var grid = svg.querySelectorAll('.dashboard-chart-grid');
+      var labels = svg.querySelectorAll('.dashboard-chart-y-label');
+      if (grid.length < 2 || !labels.length) return null;
+
+      var top = +grid[0].getAttribute('y1');
+      var bottom = +grid[grid.length - 1].getAttribute('y1');
+      var max = parseInt(labels[0].textContent, 10);
+
+      if (!(bottom > top) || isNaN(max)) return null;
+      return { top: top, bottom: bottom, max: max };
+    }
+
+    function valueAt(m, cy) {
+      return Math.round(m.max * (m.bottom - cy) / (m.bottom - m.top));
+    }
+
+    function show(e) {
+      var svg = box.querySelector('.dashboard-trend-svg');
+      if (!svg) return hide();
+
+      var pts = svg.querySelectorAll('.dashboard-chart-point');
+      var m = metrics(svg);
+      if (!pts.length || !m) return hide();
+
+      var rect = svg.getBoundingClientRect();
+      var vb = svg.viewBox.baseVal;
+      if (!rect.width || !vb.width) return hide();
+      if (e.clientY < rect.top || e.clientY > rect.bottom) return hide();
+
+      var sx = rect.width / vb.width;
+      var sy = rect.height / vb.height;
+      var mx = (e.clientX - rect.left) / sx;
+
+      var best = 0;
+      var dist = Infinity;
+      for (var i = 0; i < pts.length; i++) {
+        var d = Math.abs(+pts[i].getAttribute('cx') - mx);
+        if (d < dist) { dist = d; best = i; }
+      }
+
+      var pt = pts[best];
+      var cx = +pt.getAttribute('cx');
+      var cy = +pt.getAttribute('cy');
+      var value = valueAt(m, cy);
+      var prev = best > 0
+        ? valueAt(m, +pts[best - 1].getAttribute('cy'))
+        : null;
+
+      /* Titik yang disorot */
+      if (hot !== pt) {
+        clearHot();
+        pt.classList.add('is-hover');
+        hot = pt;
+      }
+
+      /* Tanggal: 7 hari yang berakhir hari ini (sama dengan app.js) */
+      var date = new Date();
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() - (pts.length - 1 - best));
+
+      var dateText = date.toLocaleDateString('id-ID', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+      });
+
+      /* Isi tooltip */
+      tip.textContent = '';
+      tip.appendChild(el('div', 'ad-tip-date', dateText));
+
+      var row = el('div', 'ad-tip-value');
+      row.appendChild(el('b', '', String(value)));
+      row.appendChild(el('span', '', 'kejadian'));
+      tip.appendChild(row);
+
+      if (prev !== null) {
+        var diff = value - prev;
+        var cls = diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat';
+        var text =
+          diff > 0 ? '▲ ' + diff + ' dari hari sebelumnya' :
+          diff < 0 ? '▼ ' + Math.abs(diff) + ' dari hari sebelumnya' :
+          'Sama seperti hari sebelumnya';
+        tip.appendChild(el('div', 'ad-tip-delta ' + cls, text));
+      }
+
+      /* Posisi */
+      var px = rect.left + cx * sx;
+      var py = rect.top + cy * sy;
+
+      tip.classList.add('is-visible');
+
+      var w = tip.offsetWidth;
+      var h = tip.offsetHeight;
+      var left = Math.min(Math.max(8, px - w / 2), window.innerWidth - w - 8);
+      var topPos = py - h - 14;
+      if (topPos < 8) topPos = py + 16;
+
+      tip.style.left = left + 'px';
+      tip.style.top = topPos + 'px';
+
+      guide.style.left = px + 'px';
+      guide.style.top = (rect.top + m.top * sy) + 'px';
+      guide.style.height = ((m.bottom - m.top) * sy) + 'px';
+      guide.style.opacity = '1';
+    }
+
+    box.addEventListener('pointermove', show);
+    box.addEventListener('pointerdown', show);
+    box.addEventListener('pointerleave', hide);
+    box.addEventListener('pointercancel', hide);
+    window.addEventListener('scroll', hide, true);
+  })();
+</script>
 
 </body>
 </html>
