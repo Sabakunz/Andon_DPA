@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request, redirect, url_for, session
+from flask import Flask, render_template, jsonify, request, redirect, url_for, session, Response
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -38,6 +38,11 @@ MQTT_ENABLED = os.getenv("MQTT_ENABLED", "false").strip().lower() in {
 
 TELEGRAM_BOT_TOKEN = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
 TELEGRAM_CHAT_ID = (os.getenv("TELEGRAM_CHAT_ID") or "").strip()
+
+# Kunci bersama Gateway ESP32 <-> server untuk /api/gateway/*. Gateway kirim
+# header X-Gateway-Key dengan nilai yang sama. Kosong = endpoint tidak terkunci
+# (TIDAK disarankan kalau server ini publik di internet).
+GATEWAY_KEY = (os.getenv("GATEWAY_KEY") or "").strip()
 
 
 def send_telegram_message(message):
@@ -453,6 +458,8 @@ def require_login():
         "health",
         "static",
         "whatsapp_webhook",
+        "gateway_ingest",
+        "gateway_commands",
     }:
         return None
 
@@ -469,6 +476,25 @@ def require_login():
     return redirect(
         url_for("login")
     )
+
+
+def enqueue_gateway_command(station_id, changes):
+    """Antre command untuk Gateway ESP32 yang polling GET /api/gateway/commands
+    (jalur HTTP, tanpa MQTT/LoRa serial). Dipanggil setiap ada command dari
+    dashboard (RESET/MACHINE/MATERIAL/QUALITY) supaya lampu fisik ikut berubah,
+    bukan cuma status di Supabase."""
+    rows = [
+        {"station_id": int(station_id), "category": key, "value": int(value)}
+        for key, value in changes.items()
+    ]
+
+    if not rows:
+        return
+
+    try:
+        supabase.table("pending_commands").insert(rows).execute()
+    except Exception as exc:
+        print("ENQUEUE GATEWAY COMMAND ERROR:", exc)
 
 
 def update_station_status_from_command(
@@ -528,6 +554,8 @@ def update_station_status_from_command(
 
         if not ok:
             return False
+
+        enqueue_gateway_command(station_id, changes)
 
         # ====================================================
         # KIRIM RECOVERY KHUSUS RESET
@@ -642,11 +670,16 @@ def update_station_status_from_command(
     if changes is None:
         return False
 
-    return update_station_state(
+    ok = update_station_state(
         station_id,
         changes,
         source="LoRa/API",
     )
+
+    if ok:
+        enqueue_gateway_command(station_id, changes)
+
+    return ok
 
 
 def process_gateway_line(line):
@@ -855,6 +888,99 @@ def health():
                 "error": str(exc),
             }
         ), 500
+
+
+# ============================================================
+# GATEWAY ESP32 (HTTP) - pengganti MQTT/LoRa serial.
+# Gateway kirim status station via POST /api/gateway/ingest, dan ambil
+# command (tombol Reset dari dashboard) via polling GET /api/gateway/commands.
+# Tidak butuh broker MQTT atau proses tambahan yang harus selalu nyala -
+# cocok untuk Vercel (serverless).
+# ============================================================
+
+def _check_gateway_key():
+    if GATEWAY_KEY and request.headers.get("X-Gateway-Key") != GATEWAY_KEY:
+        return jsonify({"error": "X-Gateway-Key salah atau tidak ada"}), 401
+    return None
+
+
+@app.post("/api/gateway/ingest")
+def gateway_ingest():
+    denied = _check_gateway_key()
+    if denied:
+        return denied
+
+    payload = request.get_json(silent=True) or {}
+    station_id = payload.get("station")
+
+    try:
+        station_id = int(station_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": 'payload harus memuat "station" (angka)'}), 400
+
+    if station_id <= 0:
+        return jsonify({"error": 'payload harus memuat "station" (angka > 0)'}), 400
+
+    changes = {
+        key: payload[key]
+        for key in ("machine", "quality", "material")
+        if key in payload
+    }
+
+    if not changes:
+        # Heartbeat tanpa perubahan lampu (Gateway masih hidup) - tidak ada
+        # yang perlu diupdate di andon_current_state selain menandai
+        # station-nya sudah pernah dikenal.
+        return jsonify({"ok": True, "station_id": station_id, "note": "heartbeat"})
+
+    try:
+        ok = update_station_state(station_id, changes, source="HTTP Gateway")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    if not ok:
+        return jsonify({"error": "tidak ada field machine/quality/material yang valid"}), 400
+
+    return jsonify({"ok": True, "station_id": station_id, "changes": changes})
+
+
+@app.get("/api/gateway/commands")
+def gateway_commands():
+    denied = _check_gateway_key()
+    if denied:
+        return denied
+
+    ttl_cutoff = (
+        datetime.now(timezone.utc) - timedelta(seconds=60)
+    ).isoformat()
+
+    try:
+        result = (
+            supabase
+            .table("pending_commands")
+            .select("id,station_id,category,value,created_at")
+            .execute()
+        )
+    except Exception as exc:
+        print("GATEWAY COMMANDS FETCH ERROR:", exc)
+        return Response("", mimetype="text/plain")
+
+    rows = result.data or []
+    ids = [row["id"] for row in rows]
+
+    if ids:
+        try:
+            supabase.table("pending_commands").delete().in_("id", ids).execute()
+        except Exception as exc:
+            print("GATEWAY COMMANDS DELETE ERROR:", exc)
+
+    fresh = [row for row in rows if (row.get("created_at") or "") >= ttl_cutoff]
+    lines = [
+        f"{row['station_id']}|{row['category']}|{row['value']}"
+        for row in fresh
+    ]
+
+    return Response("\n".join(lines), mimetype="text/plain")
 
 
 # ============================================================
